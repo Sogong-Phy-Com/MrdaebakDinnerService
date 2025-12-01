@@ -226,22 +226,40 @@ public class InventoryService {
                 inventory.setCapacityPerWindow(newCapacity);
                 menuInventoryRepository.saveAndFlush(inventory);
                 
-                // 이번주 예약 수량 확인 (consumed=false만 포함하므로 차감되었는지 확인)
+                System.out.println("[InventoryService] 주문 " + orderId + " - 메뉴 아이템 " + reservation.getMenuItemId() + 
+                    " 재고 " + quantityToDeduct + "개 차감 (현재 보유량: " + currentCapacity + " -> " + newCapacity + ")");
+                System.out.println("[InventoryService] 주문 " + orderId + " - 메뉴 아이템 " + reservation.getMenuItemId() + 
+                    " consumed=true로 설정 완료 (예약 ID: " + reservation.getId() + ")");
+                count++;
+            }
+            
+            // 모든 예약을 업데이트한 후 이번주 예약 수량 확인 (트랜잭션 커밋 후 정확한 값 확인)
+            if (count > 0) {
+                // 각 메뉴 아이템별로 이번주 예약 수량 확인
+                Map<Long, Integer> menuItemQuantities = reservations.stream()
+                    .collect(Collectors.groupingBy(
+                        InventoryReservation::getMenuItemId,
+                        Collectors.summingInt(r -> r.getQuantity() != null ? r.getQuantity() : 0)
+                    ));
+                
                 LocalDate today = LocalDate.now();
                 int dayOfWeek = today.getDayOfWeek().getValue() % 7;
                 LocalDate weekStart = today.minusDays(dayOfWeek);
                 LocalDate weekEnd = weekStart.plusWeeks(1);
                 LocalDateTime weekStartDateTime = LocalDateTime.of(weekStart, LocalTime.MIN);
                 LocalDateTime weekEndDateTime = LocalDateTime.of(weekEnd, LocalTime.MIN);
-                Integer weeklyReservedAfter = inventoryReservationRepository
-                    .sumWeeklyReservedByMenuItemId(reservation.getMenuItemId(), weekStartDateTime, weekEndDateTime);
                 
-                System.out.println("[InventoryService] 주문 " + orderId + " - 메뉴 아이템 " + reservation.getMenuItemId() + 
-                    " 재고 " + quantityToDeduct + "개 차감 (현재 보유량: " + currentCapacity + " -> " + newCapacity + ")");
-                System.out.println("[InventoryService] 주문 " + orderId + " - 메뉴 아이템 " + reservation.getMenuItemId() + 
-                    " consumed=true로 설정 완료 (이번주 예약 수량: " + (weeklyReservedAfter != null ? weeklyReservedAfter : 0) + ")");
-                count++;
+                for (Map.Entry<Long, Integer> entry : menuItemQuantities.entrySet()) {
+                    Long menuItemId = entry.getKey();
+                    Integer deductedQuantity = entry.getValue();
+                    Integer weeklyReservedAfter = inventoryReservationRepository
+                        .sumWeeklyReservedByMenuItemId(menuItemId, weekStartDateTime, weekEndDateTime);
+                    System.out.println("[InventoryService] 메뉴 아이템 " + menuItemId + 
+                        " - 차감된 수량: " + deductedQuantity + 
+                        ", 이번주 예약 수량 (consumed=false만): " + (weeklyReservedAfter != null ? weeklyReservedAfter : 0));
+                }
             }
+            
             System.out.println("[InventoryService] 주문 " + orderId + "의 재고 예약 " + count + "개가 소진되었습니다. (이번주 예약 수량에서도 차감됨)");
         } catch (Exception e) {
             System.err.println("[InventoryService] 재고 소진 중 오류 발생: " + e.getMessage());
