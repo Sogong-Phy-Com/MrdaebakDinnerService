@@ -859,13 +859,24 @@ useEffect(() => {
         setAgreeCardUse(false);
         setAgreePolicy(false);
         
+        // 할인 정보 확인 및 표시
+        const loyaltyDiscountApplied = response.data.loyalty_discount_applied;
+        let successMessage = '주문이 접수되었습니다. 관리자 승인 후 직원에게 전달됩니다.';
+        
+        if (loyaltyDiscountApplied) {
+          const originalPrice = response.data.original_price;
+          const discountAmount = response.data.discount_amount;
+          const deliveredOrdersCount = response.data.delivered_orders_count;
+          successMessage = `주문이 접수되었습니다.\n\n🎉 할인 혜택이 적용되었습니다!\n배달 완료 ${deliveredOrdersCount}회 달성으로 10% 할인이 적용되었습니다.\n원래 가격: ${originalPrice?.toLocaleString()}원\n할인 금액: ${discountAmount?.toLocaleString()}원\n최종 가격: ${response.data.total_price?.toLocaleString()}원\n\n관리자 승인 후 직원에게 전달됩니다.`;
+        }
+        
         // 주문 생성 성공 후 즉시 리다이렉트하여 추가 호출 방지
         if (orderId) {
           // 제출 ID를 null로 설정하여 추가 제출 완전 차단
           orderSubmissionRef.current = null;
           setIsSubmitting(false);
           setLoading(false);
-          alert('주문이 접수되었습니다. 관리자 승인 후 직원에게 전달됩니다.');
+          alert(successMessage);
           navigate(`/delivery/${orderId}`, { replace: true });
         } else {
           // orderId가 없어도 주문은 성공했을 수 있으므로 주문 목록으로 이동
@@ -873,7 +884,7 @@ useEffect(() => {
           orderSubmissionRef.current = null;
           setIsSubmitting(false);
           setLoading(false);
-          alert('주문이 접수되었습니다. 관리자 승인 후 직원에게 전달됩니다.');
+          alert(successMessage);
           navigate('/orders', { replace: true });
         }
       }

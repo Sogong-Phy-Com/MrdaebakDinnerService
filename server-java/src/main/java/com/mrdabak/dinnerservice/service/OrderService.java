@@ -149,7 +149,9 @@ public class OrderService {
         long deliveredOrders = previousOrders.stream()
                 .filter(o -> "delivered".equalsIgnoreCase(o.getStatus()))
                 .count();
-        boolean loyaltyEligible = Boolean.TRUE.equals(user.getLoyaltyConsent()) && deliveredOrders >= 5;
+        // 배달 완료 4회 이상부터 (5번째 주문부터) 할인 적용
+        boolean loyaltyEligible = Boolean.TRUE.equals(user.getLoyaltyConsent()) && deliveredOrders >= 4;
+        double originalPrice = totalPrice;
         if (loyaltyEligible) {
             totalPrice = totalPrice * 0.9;
         }

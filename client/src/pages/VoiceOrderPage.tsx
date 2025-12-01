@@ -517,6 +517,21 @@ const VoiceOrderPage: React.FC = () => {
             ) : (
               <p className="muted tiny">모든 필수 정보가 채워졌습니다.</p>
             )}
+            {summary?.readyForConfirmation && (
+              <div className="confirmation-notice" style={{
+                padding: '12px',
+                marginTop: '12px',
+                marginBottom: '12px',
+                backgroundColor: '#fff3cd',
+                border: '1px solid #ffc107',
+                borderRadius: '8px',
+                color: '#856404',
+                fontSize: '14px',
+                textAlign: 'center'
+              }}>
+                주문 확정 버튼을 눌러 주문을 확정해주세요
+              </div>
+            )}
             <button
               className="btn btn-primary confirm-button"
               onClick={handleConfirm}

@@ -6,8 +6,13 @@ import com.mrdabak.dinnerservice.dto.ReservationChangeRequestResponseDto;
 import com.mrdabak.dinnerservice.model.MenuItem;
 import com.mrdabak.dinnerservice.model.Order;
 import com.mrdabak.dinnerservice.model.OrderItem;
+import com.mrdabak.dinnerservice.model.User;
+import com.mrdabak.dinnerservice.model.DinnerType;
 import com.mrdabak.dinnerservice.repository.MenuItemRepository;
+import com.mrdabak.dinnerservice.repository.UserRepository;
+import com.mrdabak.dinnerservice.repository.DinnerTypeRepository;
 import com.mrdabak.dinnerservice.repository.order.OrderItemRepository;
+import com.mrdabak.dinnerservice.repository.order.OrderRepository;
 import com.mrdabak.dinnerservice.service.OrderChangeRequestService;
 import com.mrdabak.dinnerservice.service.OrderService;
 import jakarta.validation.Valid;
@@ -36,14 +41,23 @@ public class OrderController {
     private final OrderItemRepository orderItemRepository;
     private final MenuItemRepository menuItemRepository;
     private final OrderChangeRequestService orderChangeRequestService;
+    private final UserRepository userRepository;
+    private final DinnerTypeRepository dinnerTypeRepository;
+    private final OrderRepository orderRepository;
 
     public OrderController(OrderService orderService, OrderItemRepository orderItemRepository,
                           MenuItemRepository menuItemRepository,
-                          OrderChangeRequestService orderChangeRequestService) {
+                          OrderChangeRequestService orderChangeRequestService,
+                          UserRepository userRepository,
+                          DinnerTypeRepository dinnerTypeRepository,
+                          OrderRepository orderRepository) {
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
         this.menuItemRepository = menuItemRepository;
         this.orderChangeRequestService = orderChangeRequestService;
+        this.userRepository = userRepository;
+        this.dinnerTypeRepository = dinnerTypeRepository;
+        this.orderRepository = orderRepository;
     }
 
     @GetMapping
@@ -335,11 +349,47 @@ public class OrderController {
                     }
                 }, 50000); // 50초
                 
-                return ResponseEntity.status(201).body(Map.of(
-                        "message", "Order created successfully",
-                        "order_id", order.getId(),
-                        "total_price", order.getTotalPrice()
-                ));
+            // 할인 정보 계산
+            User user = userRepository.findById(userId).orElse(null);
+            List<Order> previousOrders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId);
+            long deliveredOrders = previousOrders.stream()
+                    .filter(o -> "delivered".equalsIgnoreCase(o.getStatus()))
+                    .count();
+            boolean loyaltyEligible = user != null && Boolean.TRUE.equals(user.getLoyaltyConsent()) && deliveredOrders >= 4;
+            
+            // 원래 가격 계산 (할인 전)
+            DinnerType dinner = dinnerTypeRepository.findById(request.getDinnerTypeId()).orElse(null);
+            double originalPrice = 0;
+            if (dinner != null) {
+                Map<String, Double> styleMultipliers = Map.of(
+                        "simple", 1.0,
+                        "grand", 1.3,
+                        "deluxe", 1.6
+                );
+                double basePrice = dinner.getBasePrice() * styleMultipliers.getOrDefault(request.getServingStyle(), 1.0);
+                double itemsPrice = 0;
+                for (com.mrdabak.dinnerservice.dto.OrderItemDto item : request.getItems()) {
+                    MenuItem menuItem = menuItemRepository.findById(item.getMenuItemId()).orElse(null);
+                    if (menuItem != null) {
+                        itemsPrice += menuItem.getPrice() * item.getQuantity();
+                    }
+                }
+                originalPrice = basePrice + itemsPrice;
+            }
+            
+            Map<String, Object> responseBody = new HashMap<>();
+            responseBody.put("message", "Order created successfully");
+            responseBody.put("order_id", order.getId());
+            responseBody.put("total_price", order.getTotalPrice());
+            responseBody.put("loyalty_discount_applied", loyaltyEligible);
+            if (loyaltyEligible) {
+                responseBody.put("original_price", (int) Math.round(originalPrice));
+                responseBody.put("discount_amount", (int) Math.round(originalPrice - order.getTotalPrice()));
+                responseBody.put("discount_percentage", 10);
+                responseBody.put("delivered_orders_count", deliveredOrders);
+            }
+            
+            return ResponseEntity.status(201).body(responseBody);
             } // synchronized 블록 종료
         } catch (NumberFormatException e) {
             return ResponseEntity.status(401).body(Map.of("error", "Invalid user ID"));
