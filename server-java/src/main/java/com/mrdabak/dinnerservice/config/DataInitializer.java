@@ -296,9 +296,25 @@ public class DataInitializer implements CommandLineRunner {
             customer.setApprovalStatus("approved");
             customer.setSecurityQuestion("내 어릴적 별명은?");
             customer.setSecurityAnswer("asd");
+            // 테스트용 더미 카드 정보 추가
+            customer.setCardNumber("1234-5678-9012-3456");
+            customer.setCardExpiry("12/25");
+            customer.setCardCvv("123");
+            customer.setCardHolderName(name);
             userRepository.save(customer);
             System.out.println("[DataInitializer] 고객 계정 생성: " + email);
         } else {
+            // 기존 계정에 카드 정보가 없으면 더미 카드 정보 추가
+            userRepository.findByEmail(email).ifPresent(user -> {
+                if (user.getCardNumber() == null || user.getCardNumber().isEmpty()) {
+                    user.setCardNumber("1234-5678-9012-3456");
+                    user.setCardExpiry("12/25");
+                    user.setCardCvv("123");
+                    user.setCardHolderName(user.getName() != null ? user.getName() : "Test User");
+                    userRepository.save(user);
+                    System.out.println("[DataInitializer] 기존 고객 계정에 더미 카드 정보 추가: " + email);
+                }
+            });
             System.out.println("[DataInitializer] 고객 계정이 이미 존재합니다: " + email);
         }
     }
@@ -315,6 +331,11 @@ public class DataInitializer implements CommandLineRunner {
             employee.setApprovalStatus("approved"); // 관리자/직원 계정은 자동 승인
             employee.setSecurityQuestion("내 어릴적 별명은?");
             employee.setSecurityAnswer("asd");
+            // 테스트용 더미 카드 정보 추가
+            employee.setCardNumber("1234-5678-9012-3456");
+            employee.setCardExpiry("12/25");
+            employee.setCardCvv("123");
+            employee.setCardHolderName(name);
             userRepository.save(employee);
         } else {
             // 기존 사용자의 approvalStatus 및 보안 질문 업데이트
@@ -327,6 +348,14 @@ public class DataInitializer implements CommandLineRunner {
                 if (user.getSecurityQuestion() == null || user.getSecurityQuestion().isEmpty()) {
                     user.setSecurityQuestion("내 어릴적 별명은?");
                     user.setSecurityAnswer("asd");
+                    updated = true;
+                }
+                // 카드 정보가 없으면 더미 카드 정보 추가
+                if (user.getCardNumber() == null || user.getCardNumber().isEmpty()) {
+                    user.setCardNumber("1234-5678-9012-3456");
+                    user.setCardExpiry("12/25");
+                    user.setCardCvv("123");
+                    user.setCardHolderName(user.getName() != null ? user.getName() : "Test User");
                     updated = true;
                 }
                 if (updated) {

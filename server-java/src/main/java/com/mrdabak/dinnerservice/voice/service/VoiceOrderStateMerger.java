@@ -8,8 +8,10 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -42,21 +44,60 @@ public class VoiceOrderStateMerger {
                 .ifPresent(style -> current.setServingStyle(style.toLowerCase(Locale.ROOT)));
 
         if (incoming.getMenuAdjustments() != null && !incoming.getMenuAdjustments().isEmpty()) {
-            List<VoiceOrderItem> normalizedItems = new ArrayList<>();
+            // 기존 메뉴 조정사항을 가져오거나 새로 생성
+            List<VoiceOrderItem> existingAdjustments = current.getMenuAdjustments() != null 
+                    ? new ArrayList<>(current.getMenuAdjustments()) 
+                    : new ArrayList<>();
+            
+            // 기존 항목들을 맵으로 변환 (key 또는 name으로 인덱싱)
+            Map<String, VoiceOrderItem> adjustmentMap = new LinkedHashMap<>();
+            for (VoiceOrderItem existing : existingAdjustments) {
+                String key = existing.getKey() != null ? existing.getKey() : existing.getName();
+                if (key != null) {
+                    adjustmentMap.put(key, existing);
+                }
+            }
+            
+            // 새로운 조정사항을 병합
             for (VoiceOrderItem item : incoming.getMenuAdjustments()) {
                 if (item == null) continue;
-                VoiceOrderItem clone = new VoiceOrderItem();
-                clone.setQuantity(item.getQuantity());
-                clone.setAction(item.getAction());
-                clone.setName(item.getName());
-                normalizer.normalizeMenuItemKey(Optional.ofNullable(item.getKey()).orElse(item.getName()))
-                        .ifPresent(clone::setKey);
-                if (clone.getKey() == null && item.getKey() != null) {
-                    clone.setKey(item.getKey());
+                
+                String itemKey = normalizer.normalizeMenuItemKey(
+                        Optional.ofNullable(item.getKey()).orElse(item.getName()))
+                        .orElse(item.getKey() != null ? item.getKey() : item.getName());
+                
+                if (itemKey == null) continue;
+                
+                VoiceOrderItem existing = adjustmentMap.get(itemKey);
+                
+                // action이 "add" 또는 "increase"인 경우 기존 수량에 추가
+                if (item.getAction() != null && 
+                    (item.getAction().toLowerCase().contains("add") || 
+                     item.getAction().toLowerCase().contains("increase") ||
+                     item.getAction().toLowerCase().contains("추가") ||
+                     item.getAction().toLowerCase().contains("증가"))) {
+                    int currentQuantity = existing != null && existing.getQuantity() != null 
+                            ? existing.getQuantity() 
+                            : 0;
+                    int addQuantity = item.getQuantity() != null ? item.getQuantity() : 1;
+                    VoiceOrderItem newItem = new VoiceOrderItem();
+                    newItem.setKey(itemKey);
+                    newItem.setName(item.getName());
+                    newItem.setQuantity(currentQuantity + addQuantity);
+                    newItem.setAction(item.getAction());
+                    adjustmentMap.put(itemKey, newItem);
+                } else {
+                    // action이 없거나 "set", "change"인 경우 수량을 직접 설정
+                    VoiceOrderItem clone = new VoiceOrderItem();
+                    clone.setQuantity(item.getQuantity());
+                    clone.setAction(item.getAction());
+                    clone.setName(item.getName());
+                    clone.setKey(itemKey);
+                    adjustmentMap.put(itemKey, clone);
                 }
-                normalizedItems.add(clone);
             }
-            current.setMenuAdjustments(normalizedItems);
+            
+            current.setMenuAdjustments(new ArrayList<>(adjustmentMap.values()));
         }
 
         if (incoming.getDeliveryDateTime() != null && !incoming.getDeliveryDateTime().isBlank()) {
