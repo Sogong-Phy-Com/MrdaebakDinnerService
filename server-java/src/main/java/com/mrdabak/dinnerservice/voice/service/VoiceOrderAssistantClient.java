@@ -38,9 +38,9 @@ public class VoiceOrderAssistantClient {
 
     public VoiceOrderAssistantClient(RestTemplate restTemplate,
                                      ObjectMapper objectMapper,
-                                     @Value("${voice.llm.api-url:https://api.openai.com/v1/chat/completions}") String apiUrl,
+                                     @Value("${voice.llm.api-url:https://api.groq.com/openai/v1/chat/completions}") String apiUrl,
                                      @Value("${voice.llm.api-key:}") String apiKey,
-                                     @Value("${voice.llm.model:gpt-4o-mini}") String modelName) {
+                                     @Value("${voice.llm.model:llama-3.1-8b-instant}") String modelName) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.apiUrl = apiUrl;
@@ -77,7 +77,7 @@ public class VoiceOrderAssistantClient {
 
             JsonNode root = objectMapper.readTree(response.getBody());
             
-            // OpenAI API 응답 형식 파싱
+            // Groq API 응답 형식 파싱 (OpenAI 호환)
             JsonNode choices = root.path("choices");
             if (!choices.isArray() || choices.isEmpty()) {
                 throw new VoiceOrderException("대화형 AI 응답에 선택지가 없습니다.");
