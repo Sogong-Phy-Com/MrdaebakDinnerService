@@ -35,8 +35,8 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
-# Copy built JAR
-COPY --from=build /app/target/dinner-service-1.0.0.jar app.jar
+# Copy built JAR (finalName이 설정되어 있어서 버전 없이 생성됨)
+COPY --from=build /app/target/dinner-service.jar app.jar
 
 # Create data directory for SQLite
 RUN mkdir -p /app/data
