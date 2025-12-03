@@ -127,7 +127,7 @@ public class DeliverySchedulingService {
             schedule.setStatus("SCHEDULED");
         }
 
-        return deliveryScheduleRepository.save(schedule);
+        return deliveryScheduleRepository.saveAndFlush(schedule);
     }
 
     @Transactional("scheduleTransactionManager")
@@ -171,7 +171,7 @@ public class DeliverySchedulingService {
         }
         
         System.out.println("[DeliverySchedulingService] 주문 ID " + orderId + "에 대한 배달 스케줄 저장/업데이트");
-        return deliveryScheduleRepository.save(schedule);
+        return deliveryScheduleRepository.saveAndFlush(schedule);
     }
 
     @Transactional("scheduleTransactionManager")
@@ -201,7 +201,7 @@ public class DeliverySchedulingService {
             }
 
             schedule.setStatus("CANCELLED");
-            deliveryScheduleRepository.save(schedule);
+            deliveryScheduleRepository.saveAndFlush(schedule);
             System.out.println("[DeliverySchedulingService] 주문 " + orderId + "의 배달 스케줄이 취소되었습니다. (이전 상태: " + previousStatus + ")");
         } catch (Exception e) {
             System.err.println("[DeliverySchedulingService] 배달 스케줄 취소 중 오류 발생: " + e.getMessage());
@@ -246,7 +246,7 @@ public class DeliverySchedulingService {
         }
 
         schedule.setStatus(targetStatus);
-        return deliveryScheduleRepository.save(schedule);
+        return deliveryScheduleRepository.saveAndFlush(schedule);
     }
 
     private void validateWithinShift(LocalDateTime departure, LocalDateTime returnTime) {

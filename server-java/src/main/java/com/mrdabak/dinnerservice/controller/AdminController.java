@@ -19,6 +19,7 @@ import com.mrdabak.dinnerservice.service.OrderService;
 import com.mrdabak.dinnerservice.repository.schedule.DeliveryScheduleRepository;
 import com.mrdabak.dinnerservice.repository.schedule.EmployeeWorkAssignmentRepository;
 import com.mrdabak.dinnerservice.model.EmployeeWorkAssignment;
+import com.mrdabak.dinnerservice.repository.inventory.InventoryReservationRepository;
 import com.mrdabak.dinnerservice.util.DeliveryTimeUtils;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -48,6 +49,7 @@ public class AdminController {
     private final OrderItemRepository orderItemRepository;
     private final DinnerTypeRepository dinnerTypeRepository;
     private final MenuItemRepository menuItemRepository;
+    private final InventoryReservationRepository inventoryReservationRepository;
 
     public AdminController(UserRepository userRepository, PasswordEncoder passwordEncoder, 
                           JwtService jwtService, OrderRepository orderRepository,
@@ -57,7 +59,8 @@ public class AdminController {
                           OrderService orderService,
                           OrderItemRepository orderItemRepository,
                           DinnerTypeRepository dinnerTypeRepository,
-                          MenuItemRepository menuItemRepository) {
+                          MenuItemRepository menuItemRepository,
+                          InventoryReservationRepository inventoryReservationRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -69,6 +72,7 @@ public class AdminController {
         this.orderItemRepository = orderItemRepository;
         this.dinnerTypeRepository = dinnerTypeRepository;
         this.menuItemRepository = menuItemRepository;
+        this.inventoryReservationRepository = inventoryReservationRepository;
     }
 
     @PostMapping("/create-employee")
@@ -293,7 +297,7 @@ public class AdminController {
             
             order.setCookingEmployeeId(cookingEmployeeId);
             order.setDeliveryEmployeeId(deliveryEmployeeId);
-            orderRepository.save(order);
+            orderRepository.saveAndFlush(order);
 
             if (deliveryEmployeeId != null && order.getDeliveryTime() != null && order.getDeliveryAddress() != null) {
                 java.time.LocalDateTime deliveryDateTime = DeliveryTimeUtils.parseDeliveryTime(order.getDeliveryTime());
@@ -355,7 +359,7 @@ public class AdminController {
                 ));
             }
             order.setAdminApprovalStatus("APPROVED");
-            orderRepository.save(order);
+            orderRepository.saveAndFlush(order);
             
             // 주문 승인 시 배달 직원이 이미 할당되어 있으면 배달 스케줄 생성
             if (order.getDeliveryEmployeeId() != null && order.getDeliveryTime() != null && order.getDeliveryAddress() != null) {
@@ -473,8 +477,8 @@ public class AdminController {
                 assignmentsToSave.add(assignment);
             }
             
-            // 배치 저장 (한 번의 트랜잭션으로 모든 할당 저장)
-            employeeWorkAssignmentRepository.saveAll(assignmentsToSave);
+            // 배치 저장 (한 번의 트랜잭션으로 모든 할당 저장) - 즉시 반영을 위해 saveAllAndFlush 사용
+            employeeWorkAssignmentRepository.saveAllAndFlush(assignmentsToSave);
 
             System.out.println("[AdminController] 직원 할당 저장 완료 - 날짜: " + dateStr + 
                 ", 조리: " + cookingEmployees.size() + "명, 배달: " + deliveryEmployees.size() + "명");
@@ -615,6 +619,47 @@ public class AdminController {
             return ResponseEntity.ok(orderDtos);
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("error", "Failed to fetch pending orders: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/orders/reset")
+    public ResponseEntity<?> resetAllOrders() {
+        try {
+            System.out.println("[AdminController] 주문 내역 초기화 시작...");
+            
+            // 1. 모든 재고 예약 삭제 (inventory DB)
+            long reservationCount = inventoryReservationRepository.count();
+            inventoryReservationRepository.deleteAll();
+            System.out.println("[AdminController] 재고 예약 " + reservationCount + "개 삭제 완료");
+            
+            // 2. 모든 배달 스케줄 삭제 (schedule DB)
+            long scheduleCount = deliveryScheduleRepository.count();
+            deliveryScheduleRepository.deleteAll();
+            System.out.println("[AdminController] 배달 스케줄 " + scheduleCount + "개 삭제 완료");
+            
+            // 3. 모든 주문 아이템 삭제 (order DB)
+            long orderItemCount = orderItemRepository.count();
+            orderItemRepository.deleteAll();
+            System.out.println("[AdminController] 주문 아이템 " + orderItemCount + "개 삭제 완료");
+            
+            // 4. 모든 주문 삭제 (order DB)
+            long orderCount = orderRepository.count();
+            orderRepository.deleteAll();
+            System.out.println("[AdminController] 주문 " + orderCount + "개 삭제 완료");
+            
+            System.out.println("[AdminController] 주문 내역 초기화 완료!");
+            
+            return ResponseEntity.ok(Map.of(
+                "message", "모든 주문 내역이 초기화되었습니다.",
+                "deleted_orders", orderCount,
+                "deleted_order_items", orderItemCount,
+                "deleted_reservations", reservationCount,
+                "deleted_schedules", scheduleCount
+            ));
+        } catch (Exception e) {
+            System.err.println("[AdminController] 주문 초기화 실패: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(500).body(Map.of("error", "주문 초기화 중 오류가 발생했습니다: " + e.getMessage()));
         }
     }
 }

@@ -10,10 +10,9 @@ import com.mrdabak.dinnerservice.service.DeliverySchedulingService;
 import com.mrdabak.dinnerservice.service.OrderService;
 import com.mrdabak.dinnerservice.service.InventoryService;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import jakarta.annotation.PostConstruct;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -24,7 +23,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/employee")
-@PreAuthorize("hasAnyRole('ADMIN', 'EMPLOYEE')")
+// @PreAuthorize는 SecurityConfig에서 이미 처리하므로 제거
 public class EmployeeController {
 
     private final OrderRepository orderRepository;
@@ -46,6 +45,7 @@ public class EmployeeController {
                              InventoryService inventoryService,
                              com.mrdabak.dinnerservice.repository.schedule.DeliveryScheduleRepository deliveryScheduleRepository,
                              EmployeeWorkAssignmentRepository employeeWorkAssignmentRepository) {
+        System.out.println("[EmployeeController] 생성자 호출 - 컨트롤러 초기화");
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.userRepository = userRepository;
@@ -56,17 +56,28 @@ public class EmployeeController {
         this.inventoryService = inventoryService;
         this.deliveryScheduleRepository = deliveryScheduleRepository;
         this.employeeWorkAssignmentRepository = employeeWorkAssignmentRepository;
+        System.out.println("[EmployeeController] 생성자 완료");
+    }
+
+    @PostConstruct
+    public void init() {
+        System.out.println("========== [EmployeeController] @PostConstruct 호출 - 빈 초기화 완료 ==========");
+        System.out.println("[EmployeeController] 컨트롤러가 Spring에 등록되었습니다!");
     }
 
     @GetMapping("/orders")
     public ResponseEntity<List<Map<String, Object>>> getOrders(
             @RequestParam(required = false) String status,
             Authentication authentication) {
+        System.out.println("========== [EmployeeController] getOrders 메서드 호출 ==========");
+        System.out.println("[EmployeeController] 주문 목록 조회 요청 - status: " + status);
         if (authentication == null || authentication.getAuthorities() == null) {
+            System.out.println("[EmployeeController] 인증 실패");
             return ResponseEntity.status(401).build();
         }
         boolean isAdmin = authentication.getAuthorities().stream()
                 .anyMatch(auth -> "ROLE_ADMIN".equals(auth.getAuthority()));
+        System.out.println("[EmployeeController] 관리자 여부: " + isAdmin);
 
         // Get all orders (no date filtering)
         List<Order> orders;
@@ -76,11 +87,40 @@ public class EmployeeController {
             orders = orderRepository.findAll();
         }
 
-        // 주문 캘린더에서는 승인된 주문만 표시 (관리자, 직원 모두)
-        // 주문 관리 페이지에서는 관리자가 모든 주문을 볼 수 있지만, 캘린더는 승인된 주문만 표시
-        orders = orders.stream()
-                .filter(order -> "APPROVED".equalsIgnoreCase(order.getAdminApprovalStatus()))
-                .toList();
+        // 관리자는 모든 주문을 볼 수 있고, 직원은 APPROVED 주문만 볼 수 있음
+        if (!isAdmin) {
+            orders = orders.stream()
+                    .filter(order -> "APPROVED".equalsIgnoreCase(order.getAdminApprovalStatus()))
+                    .toList();
+        }
+
+        // 정렬: 날짜/시간 빠른 순, 처리 늦어진 순
+        orders = orders.stream().sorted((a, b) -> {
+            // 먼저 배달 시간 빠른 순
+            try {
+                java.time.LocalDateTime aTime = java.time.LocalDateTime.parse(a.getDeliveryTime(), java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                java.time.LocalDateTime bTime = java.time.LocalDateTime.parse(b.getDeliveryTime(), java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                int timeCompare = aTime.compareTo(bTime);
+                if (timeCompare != 0) {
+                    return timeCompare;
+                }
+            } catch (Exception e) {
+                // 파싱 실패 시 무시하고 다음 정렬 기준 사용
+            }
+            
+            // 같은 시간이면 처리 늦어진 순 (pending > cooking > ready > out_for_delivery > delivered > cancelled)
+            java.util.Map<String, Integer> statusOrder = new java.util.HashMap<>();
+            statusOrder.put("pending", 0);
+            statusOrder.put("cooking", 1);
+            statusOrder.put("ready", 2);
+            statusOrder.put("out_for_delivery", 3);
+            statusOrder.put("delivered", 4);
+            statusOrder.put("cancelled", 5);
+            
+            int aStatusOrder = statusOrder.getOrDefault(a.getStatus() != null ? a.getStatus().toLowerCase() : "", 999);
+            int bStatusOrder = statusOrder.getOrDefault(b.getStatus() != null ? b.getStatus().toLowerCase() : "", 999);
+            return Integer.compare(aStatusOrder, bStatusOrder);
+        }).toList();
 
         List<Map<String, Object>> orderDtos = orders.stream().map(order -> {
             Map<String, Object> orderMap = new HashMap<>();
@@ -96,7 +136,12 @@ public class EmployeeController {
             orderMap.put("created_at", order.getCreatedAt());
             orderMap.put("cooking_employee_id", order.getCookingEmployeeId());
             orderMap.put("delivery_employee_id", order.getDeliveryEmployeeId());
-            orderMap.put("admin_approval_status", order.getAdminApprovalStatus());
+            // adminApprovalStatus가 null이거나 빈 문자열인 경우 "PENDING"으로 설정
+            String approvalStatus = order.getAdminApprovalStatus();
+            if (approvalStatus == null || approvalStatus.trim().isEmpty()) {
+                approvalStatus = "PENDING";
+            }
+            orderMap.put("admin_approval_status", approvalStatus);
             
             // Add employee names if assigned
             if (order.getCookingEmployeeId() != null) {
@@ -327,9 +372,14 @@ public class EmployeeController {
 
             // If status is being changed to cooking, consume inventory (조리 시작 시 재고 소진)
             if ("cooking".equals(status) && !"cooking".equals(order.getStatus())) {
+                System.out.println("[EmployeeController] ========== 조리 시작 (updateOrderStatus) ==========");
+                System.out.println("[EmployeeController] 주문 ID: " + id + "의 상태를 cooking으로 변경 - 재고 소진 시작");
                 try {
                     inventoryService.consumeReservationsForOrder(id);
+                    System.out.println("[EmployeeController] 주문 ID: " + id + "의 재고 소진 완료");
                 } catch (Exception e) {
+                    System.err.println("[EmployeeController] 주문 ID: " + id + "의 재고 소진 실패: " + e.getMessage());
+                    e.printStackTrace();
                     return ResponseEntity.status(500).body(Map.of("error", "재고 소진 처리 중 오류가 발생했습니다: " + e.getMessage()));
                 }
             }
@@ -361,7 +411,7 @@ public class EmployeeController {
     }
 
     @PostMapping("/orders/{id}/cancel")
-    @PreAuthorize("hasRole('ADMIN')")
+    // @PreAuthorize는 SecurityConfig에서 이미 처리하므로 제거
     public ResponseEntity<?> cancelOrder(@PathVariable Long id, Authentication authentication) {
         try {
             if (id == null) {
@@ -532,9 +582,14 @@ public class EmployeeController {
             }
 
             // 재고 차감 (트랜잭션 내에서 처리)
+            System.out.println("[EmployeeController] ========== 조리 시작 (startCooking) ==========");
+            System.out.println("[EmployeeController] 주문 ID: " + orderId + "의 조리 시작 - 재고 소진 시작");
             try {
                 inventoryService.consumeReservationsForOrder(orderId);
+                System.out.println("[EmployeeController] 주문 ID: " + orderId + "의 재고 소진 완료");
             } catch (Exception e) {
+                System.err.println("[EmployeeController] 주문 ID: " + orderId + "의 재고 소진 실패: " + e.getMessage());
+                e.printStackTrace();
                 return ResponseEntity.status(500).body(Map.of("error", "재고 차감 처리 중 오류가 발생했습니다: " + e.getMessage()));
             }
 

@@ -255,19 +255,28 @@ const Orders: React.FC = () => {
   };
 
   const handleCancelOrder = async (order: Order) => {
-    const daysUntil = calculateDaysUntilDelivery(order.delivery_time);
-    const fee = calculateCancelFee(order);
-    const refundAmount = order.total_price - fee;
-    
-    let message = '';
-    if (fee === 0) {
-      message = `주문 취소 시 수수료는 없습니다.\n환불 금액: ${refundAmount.toLocaleString()}원\n(배달일로부터 ${daysUntil}일 전)`;
+    // 조리 시작 이후에는 전액 환불 불가
+    if (order.status === 'cooking' || order.status === 'ready' || order.status === 'out_for_delivery') {
+      const message = `조리가 시작된 주문은 취소할 수 없습니다.\n\n조리 시작 이후에는 전액 환불이 불가능하며, 재고는 이미 소진되었습니다.\n\n정말 취소하시겠습니까? (환불 불가)`;
+      
+      if (!window.confirm(message)) {
+        return;
+      }
     } else {
-      message = `주문 취소 시 수수료 ${fee.toLocaleString()}원이 발생합니다.\n환불 금액: ${refundAmount.toLocaleString()}원\n(배달일로부터 ${daysUntil}일 전)\n\n취소하시겠습니까?`;
-    }
-    
-    if (!window.confirm(message)) {
-      return;
+      const daysUntil = calculateDaysUntilDelivery(order.delivery_time);
+      const fee = calculateCancelFee(order);
+      const refundAmount = order.total_price - fee;
+      
+      let message = '';
+      if (fee === 0) {
+        message = `주문 취소 시 수수료는 없습니다.\n환불 금액: ${refundAmount.toLocaleString()}원\n(배달일로부터 ${daysUntil}일 전)`;
+      } else {
+        message = `주문 취소 시 수수료 ${fee.toLocaleString()}원이 발생합니다.\n환불 금액: ${refundAmount.toLocaleString()}원\n(배달일로부터 ${daysUntil}일 전)\n\n취소하시겠습니까?`;
+      }
+      
+      if (!window.confirm(message)) {
+        return;
+      }
     }
 
     try {
@@ -283,7 +292,11 @@ const Orders: React.FC = () => {
         }
       });
 
-      alert('주문이 취소되었습니다.');
+      if (order.status === 'cooking' || order.status === 'ready' || order.status === 'out_for_delivery') {
+        alert('주문이 취소되었습니다. (조리 시작 이후 취소로 인해 환불은 불가능하며, 재고는 이미 소진되었습니다.)');
+      } else {
+        alert('주문이 취소되었습니다.');
+      }
       await fetchOrders();
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.message || '주문 취소에 실패했습니다.';

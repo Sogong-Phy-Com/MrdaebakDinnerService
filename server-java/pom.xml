@@ -14,7 +14,7 @@
     
     <groupId>com.mrdabak</groupId>
     <artifactId>dinner-service</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <name>Mr. DaeBak Dinner Service</name>
     <description>Mr. DaeBak Dinner Delivery Service Backend</description>
     

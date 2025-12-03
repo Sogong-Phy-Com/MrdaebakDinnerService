@@ -28,12 +28,11 @@ const AdminInventoryManagement: React.FC = () => {
   const [restockValues, setRestockValues] = useState<Record<number, number | ''>>({});
   const [orderedInventory, setOrderedInventory] = useState<Record<number, number>>({});
   const [restockMessage, setRestockMessage] = useState('');
-  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
-  const [bulkRestockValue, setBulkRestockValue] = useState<number | ''>('');
+  const [selectedWeek, setSelectedWeek] = useState<number>(0); // 0 = current week
 
   useEffect(() => {
     fetchInventory();
-  }, []);
+  }, [selectedWeek]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -126,79 +125,6 @@ const AdminInventoryManagement: React.FC = () => {
     }
   };
 
-  const handleBulkRestock = async () => {
-    if (selectedItems.size === 0) {
-      alert('보충할 항목을 선택해주세요.');
-      return;
-    }
-
-    if (bulkRestockValue === '' || bulkRestockValue === 0) {
-      alert('보충 수량을 입력해주세요.');
-      return;
-    }
-
-    try {
-      setRestockMessage('');
-      const headers = getAuthHeaders();
-      let successCount = 0;
-      let failCount = 0;
-
-      const promises = Array.from(selectedItems).map(async (menuItemId) => {
-        try {
-          const currentCapacity = inventoryItems.find(item => item.menu_item_id === menuItemId)?.capacity_per_window || 0;
-          const ordered = Math.max(0, Number(bulkRestockValue) - currentCapacity);
-          
-          await axios.post(`${API_URL}/inventory/${menuItemId}/order`, {
-            ordered_quantity: ordered
-          }, { headers });
-          
-          setOrderedInventory(prev => ({ ...prev, [menuItemId]: ordered }));
-          successCount++;
-          return { success: true, menuItemId };
-        } catch (err: any) {
-          console.error(`재고 보충 실패 (메뉴 ID: ${menuItemId}):`, err);
-          failCount++;
-          return { success: false, menuItemId };
-        }
-      });
-
-      await Promise.all(promises);
-
-      setSelectedItems(new Set());
-      setBulkRestockValue('');
-      setRestockMessage(`${successCount}개 항목의 주문 재고가 저장되었습니다.${failCount > 0 ? ` (${failCount}개 실패)` : ''}`);
-      setTimeout(() => setRestockMessage(''), 5000);
-      await fetchInventory();
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.error || err.message || '일괄 보충에 실패했습니다.';
-      setRestockMessage(errorMsg);
-      setTimeout(() => setRestockMessage(''), 5000);
-    }
-  };
-
-  const toggleItemSelection = (menuItemId: number) => {
-    setSelectedItems(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(menuItemId)) {
-        newSet.delete(menuItemId);
-      } else {
-        newSet.add(menuItemId);
-      }
-      return newSet;
-    });
-  };
-
-  const selectAllItems = () => {
-    if (selectedItems.size === inventoryItems.length) {
-      setSelectedItems(new Set());
-    } else {
-      setSelectedItems(new Set(inventoryItems.map(item => item.menu_item_id)));
-    }
-  };
-
-  const formatDateTime = (value: string) => {
-    return new Date(value).toLocaleString('ko-KR', { hour12: false });
-  };
 
   return (
     <div className="employee-dashboard">
@@ -213,6 +139,31 @@ const AdminInventoryManagement: React.FC = () => {
         <h2>재고 관리</h2>
         {inventoryError && <div className="error">{inventoryError}</div>}
         {restockMessage && <div className="success">{restockMessage}</div>}
+        
+        <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            onClick={() => setSelectedWeek(selectedWeek - 1)}
+            className="btn btn-secondary"
+          >
+            이전 주
+          </button>
+          <span style={{ minWidth: '150px', textAlign: 'center' }}>
+            {(() => {
+              const today = new Date();
+              const weekStart = new Date(today);
+              weekStart.setDate(today.getDate() - today.getDay() + (selectedWeek * 7));
+              const weekEnd = new Date(weekStart);
+              weekEnd.setDate(weekStart.getDate() + 6);
+              return `${weekStart.toLocaleDateString('ko-KR')} ~ ${weekEnd.toLocaleDateString('ko-KR')}`;
+            })()}
+          </span>
+          <button
+            onClick={() => setSelectedWeek(selectedWeek + 1)}
+            className="btn btn-secondary"
+          >
+            다음 주
+          </button>
+        </div>
         
         {inventoryLoading ? (
           <div className="loading">로딩 중...</div>
@@ -232,42 +183,33 @@ const AdminInventoryManagement: React.FC = () => {
                     <th style={{ padding: '10px', border: '1px solid #000' }}>주문 재고</th>
                     <th style={{ padding: '10px', border: '1px solid #000' }}>이번주 예약 수량</th>
                     <th style={{ padding: '10px', border: '1px solid #000' }}>예비 수량</th>
+                    <th style={{ padding: '10px', border: '1px solid #000' }}>시간대</th>
                     <th style={{ padding: '10px', border: '1px solid #000' }}>보충일</th>
                     <th style={{ padding: '10px', border: '1px solid #000' }}>보충</th>
                   </tr>
                 </thead>
                 <tbody>
                   {inventoryItems.map(item => {
-                    const currentCapacity = item.capacity_per_window || 1; // 기본값 1
-                    const weeklyReserved = item.weekly_reserved || item.reserved || 0;
-                    const spareQuantity = Math.max(0, currentCapacity - weeklyReserved);
+                    // 이번주 예약 수량 (weekly_reserved가 있으면 사용, 없으면 reserved 사용)
+                    const weeklyReserved = item.weekly_reserved !== undefined ? item.weekly_reserved : (item.reserved || 0);
+                    // 예비 수량 = 현재 보유량 - 이번주 예약 수량
+                    const availableQuantity = item.capacity_per_window - weeklyReserved;
                     const orderedQty = orderedInventory[item.menu_item_id] || 0;
                     
-                    // 예비 수량이 이번주 수량의 10%를 넘지 않으면 빨간색, 넘으면 초록색
-                    const tenPercentThreshold = weeklyReserved * 0.1;
-                    const dotColor = spareQuantity <= tenPercentThreshold ? '#ff4444' : '#4CAF50';
-                    
                     return (
-                      <tr key={item.menu_item_id}>
-                        <td style={{ padding: '10px', border: '1px solid #d4af37', position: 'relative' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{
-                              width: '12px',
-                              height: '12px',
-                              borderRadius: '50%',
-                              background: dotColor,
-                              border: '1px solid #000',
-                              flexShrink: 0
-                            }}></div>
-                            <span>{item.menu_item_name || `메뉴 ${item.menu_item_id}`} {item.menu_item_name_en && `(${item.menu_item_name_en})`}</span>
-                          </div>
+                      <tr key={item.menu_item_id} style={{ background: availableQuantity < 5 ? '#ffcccc' : 'transparent' }}>
+                        <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
+                          {item.menu_item_name || `메뉴 ${item.menu_item_id}`} {item.menu_item_name_en && `(${item.menu_item_name_en})`}
                         </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>{item.category || '-'}</td>
-                        <td style={{ padding: '10px', border: '1px solid #d4af37' }}>{currentCapacity.toLocaleString()}</td>
+                        <td style={{ padding: '10px', border: '1px solid #d4af37' }}>{item.capacity_per_window.toLocaleString()}</td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>{orderedQty.toLocaleString()}</td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>{weeklyReserved.toLocaleString()}</td>
-                        <td style={{ padding: '10px', border: '1px solid #d4af37', fontWeight: spareQuantity < 5 ? 'bold' : 'normal' }}>
-                          {spareQuantity.toLocaleString()}
+                        <td style={{ padding: '10px', border: '1px solid #d4af37', fontWeight: availableQuantity < 5 ? 'bold' : 'normal' }}>
+                          {availableQuantity.toLocaleString()}
+                        </td>
+                        <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
+                          {new Date(item.window_start).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} - {new Date(item.window_end).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
                         </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
                           {(() => {

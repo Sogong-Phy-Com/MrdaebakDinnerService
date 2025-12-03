@@ -32,9 +32,16 @@ public interface InventoryReservationRepository extends JpaRepository<InventoryR
     @Query("SELECT r FROM InventoryReservation r WHERE r.consumed = false AND r.orderId = :orderId")
     List<InventoryReservation> findUnconsumedByOrderId(@Param("orderId") Long orderId);
     
-    // 이번주 예약 수량 계산 (이번 주의 미소진 예약만 합산 - consumed가 true가 아닌 것만)
-    // SQLite에서는 Boolean이 INTEGER로 저장되므로 consumed = 0 또는 consumed IS NULL 체크
-    // consumed = 1이면 조리 시작된 것, consumed = 0 또는 NULL이면 미소진 예약
+    // consumed를 1로 직접 업데이트 (SQLite Boolean 저장 문제 방지)
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional("inventoryTransactionManager")
+    @Query(value = "UPDATE inventory_reservations SET consumed = 1 WHERE order_id = :orderId AND (consumed IS NULL OR consumed = 0)", nativeQuery = true)
+    int markAsConsumedByOrderId(@Param("orderId") Long orderId);
+    
+    // 이번주 예약 수량 계산 (오늘부터 7일 후까지의 미소진 예약만 합산 - consumed가 1이 아닌 것만)
+    // SQLite에서는 Boolean이 INTEGER로 저장되므로 consumed = 1이면 조리 시작된 것, consumed = 0 또는 NULL이면 미소진 예약
+    // delivery_time 기준으로 오늘부터 7일 후까지 예약을 계산 (조리 시작 시 consumed=1로 변경되면 자동으로 제외됨)
+    // consumed = 1인 경우를 명시적으로 제외 (COALESCE로 NULL을 0으로 처리하고, 0인 것만 포함)
     @Query(value = "SELECT COALESCE(SUM(r.quantity), 0) FROM inventory_reservations r " +
             "WHERE r.menu_item_id = :menuItemId " +
             "AND r.delivery_time >= :weekStart " +

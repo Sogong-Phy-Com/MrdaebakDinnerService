@@ -272,17 +272,25 @@ public class OrderService {
             throw new RuntimeException("이미 취소된 주문입니다.");
         }
 
-        // Cancel inventory reservations (main database)
+        // 조리 시작 이후 취소 시 재고는 이미 소진되었으므로 재고 예약 취소하지 않음
+        boolean isCookingStarted = "cooking".equals(order.getStatus()) || 
+                                   "ready".equals(order.getStatus()) || 
+                                   "out_for_delivery".equals(order.getStatus());
+        
         boolean inventoryCancelled = false;
-        try {
-            inventoryService.releaseReservationsForOrder(orderId);
-            inventoryCancelled = true;
-            System.out.println("[OrderService] 주문 " + orderId + "의 재고 예약이 취소되었습니다.");
-        } catch (Exception e) {
-            System.err.println("[OrderService] 재고 예약 취소 실패: " + e.getMessage());
-            e.printStackTrace();
-            // Continue with cancellation even if inventory release fails
-            // This is acceptable as the order cancellation should proceed
+        if (!isCookingStarted) {
+            // 조리 시작 전이면 재고 예약 취소
+            try {
+                inventoryService.releaseReservationsForOrder(orderId);
+                inventoryCancelled = true;
+                System.out.println("[OrderService] 주문 " + orderId + "의 재고 예약이 취소되었습니다.");
+            } catch (Exception e) {
+                System.err.println("[OrderService] 재고 예약 취소 실패: " + e.getMessage());
+                e.printStackTrace();
+                // Continue with cancellation even if inventory release fails
+            }
+        } else {
+            System.out.println("[OrderService] 주문 " + orderId + "는 조리 시작 이후 취소로 인해 재고는 이미 소진되었습니다.");
         }
 
         // Cancel delivery schedule (main database)

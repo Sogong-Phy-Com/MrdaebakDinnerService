@@ -18,6 +18,15 @@ interface DayAssignment {
   deliveryEmployees: number[];
 }
 
+interface OrderItem {
+  id?: number;
+  menu_item_id?: number;
+  quantity?: number;
+  name?: string;
+  name_en?: string;
+  price?: number;
+}
+
 interface Order {
   id: number;
   customer_name?: string;
@@ -28,6 +37,7 @@ interface Order {
   cooking_employee_id?: number;
   delivery_employee_id?: number;
   admin_approval_status?: string;
+  items?: OrderItem[];
 }
 
 const AdminScheduleManagement: React.FC = () => {
@@ -52,6 +62,7 @@ const AdminScheduleManagement: React.FC = () => {
     } else {
       fetchOrders();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth, currentYear, calendarType]);
 
   const getAuthHeaders = () => {
@@ -162,6 +173,7 @@ const AdminScheduleManagement: React.FC = () => {
     });
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const updateOrderStatus = async (orderId: number, newStatus: string) => {
     try {
       setLoading(true);
@@ -184,14 +196,12 @@ const AdminScheduleManagement: React.FC = () => {
       const headers = getAuthHeaders();
       const year = currentYear;
       const month = currentMonth;
-      const firstDay = new Date(year, month, 1);
       const lastDay = new Date(year, month + 1, 0);
       
       const assignments: { [key: string]: DayAssignment } = {};
       
       // 해당 월의 모든 날짜에 대해 할당 조회
       for (let day = 1; day <= lastDay.getDate(); day++) {
-        const date = new Date(year, month, day);
         // 로컬 날짜 문자열 생성 (UTC 변환 없이)
         const dateStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
         
@@ -741,9 +751,16 @@ const AdminScheduleManagement: React.FC = () => {
                           <p>{order.customer_name && `고객: ${order.customer_name}`}</p>
                           <p>{order.dinner_name && `디너: ${order.dinner_name}`}</p>
                           <p>주소: {order.delivery_address}</p>
+                          <p>주문 항목: {
+                            order.items && order.items.length > 0
+                              ? order.items.map((item: any) => 
+                                  `${item.name || item.name_en || '항목'} x${item.quantity || 0}`
+                                ).join(', ')
+                              : '항목 없음'
+                          }</p>
                           <p>상태: {
                             order.status === 'delivered' ? '배달 완료' : 
-                            order.status === 'cancelled' ? '취소됨' :
+                            order.status === 'cancelled' ? '주문 취소' :
                             order.status === 'cooking' ? '조리 중' :
                             order.status === 'out_for_delivery' ? '배달 중' :
                             order.status === 'ready' ? '준비 완료' : '주문 접수'

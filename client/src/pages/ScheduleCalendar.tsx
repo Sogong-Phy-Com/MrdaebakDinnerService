@@ -66,7 +66,9 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
   const [orders, setOrders] = useState<Order[]>([]);
   const [employees, setEmployees] = useState<User[]>([]);
   const [workAssignments, setWorkAssignments] = useState<{[key: string]: {tasks: string[]}}>({});
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [loading, setLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [error, setError] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSchedules, setSelectedSchedules] = useState<DeliverySchedule[]>([]);
@@ -260,6 +262,30 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
         const approvedOnly = filteredOrders.filter((order: Order) =>
           (order.admin_approval_status || '').toUpperCase() === 'APPROVED'
         );
+        
+        // 정렬: 날짜/시간 빠른 순, 처리 늦어진 순
+        approvedOnly.sort((a: Order, b: Order) => {
+          // 먼저 날짜/시간 빠른 순
+          const aTime = new Date(a.delivery_time).getTime();
+          const bTime = new Date(b.delivery_time).getTime();
+          if (aTime !== bTime) {
+            return aTime - bTime;
+          }
+          
+          // 같은 시간이면 처리 늦어진 순 (pending > cooking > ready > out_for_delivery > delivered)
+          const statusOrder: { [key: string]: number } = {
+            'pending': 0,
+            'cooking': 1,
+            'ready': 2,
+            'out_for_delivery': 3,
+            'delivered': 4,
+            'cancelled': 5
+          };
+          const aStatusOrder = statusOrder[a.status] ?? 999;
+          const bStatusOrder = statusOrder[b.status] ?? 999;
+          return aStatusOrder - bStatusOrder;
+        });
+        
         setOrders(approvedOnly);
       } else {
         setOrders([]);
@@ -401,8 +427,13 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
     }
   };
 
-  const getOrderColor = (order: Order, date: Date | null): 'red' | 'green' => {
+  const getOrderColor = (order: Order, date: Date | null): 'red' | 'green' | 'gray' => {
     if (!date) return 'green';
+    
+    // 조리 시작 이후 취소된 주문은 회색
+    if (order.status === 'cancelled' && (order.admin_approval_status === 'APPROVED' || order.cooking_employee_id != null)) {
+      return 'gray';
+    }
     
     // 끝난 주문은 초록색
     if (order.status === 'delivered' || order.status === 'cancelled') {
@@ -487,6 +518,7 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
     });
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const goToToday = () => {
     setCurrentDate(new Date());
   };
@@ -862,7 +894,7 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
                           </p>
                           {order.items && order.items.length > 0 && (
                             <p style={{ color: '#fff', margin: '5px 0', fontSize: '12px' }}>
-                              주문 구성: {order.items.map((item: any) => 
+                              주문 구성 (총 {order.items.length}개 항목): {order.items.map((item: any) => 
                                 `${item.name || item.name_en || '항목'} ${item.quantity}개`
                               ).join(', ')}
                             </p>
@@ -889,7 +921,7 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
                           fontSize: '12px'
                         }}>
                           {order.status === 'delivered' ? '배달 완료' : 
-                           order.status === 'cancelled' ? '취소됨' :
+                           order.status === 'cancelled' ? '주문 취소' :
                            order.status === 'cooking' ? '조리 중' :
                            order.status === 'out_for_delivery' ? '배달 중' :
                            order.status === 'ready' ? '준비 완료' : '주문 접수'}
@@ -1037,7 +1069,8 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
                       return (
                         <div 
                           key={order.id} 
-                          className={`schedule-card ${orderColor === 'red' ? 'my-schedule-card' : 'other-schedule-card'}`}
+                          className={`schedule-card ${orderColor === 'red' ? 'my-schedule-card' : orderColor === 'gray' ? 'cancelled-schedule-card' : 'other-schedule-card'}`}
+                          style={orderColor === 'gray' ? { backgroundColor: '#9e9e9e', opacity: 0.7 } : {}}
                         >
                           <div className="schedule-header">
                             <div>
@@ -1056,10 +1089,12 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
                             </div>
                             <span 
                               className="status-badge"
-                              style={{ backgroundColor: orderColor === 'red' ? '#ff4444' : '#4CAF50' }}
+                              style={{ 
+                                backgroundColor: orderColor === 'red' ? '#ff4444' : orderColor === 'gray' ? '#9e9e9e' : '#4CAF50' 
+                              }}
                             >
                               {order.status === 'delivered' ? '배달 완료' : 
-                               order.status === 'cancelled' ? '취소됨' :
+                               order.status === 'cancelled' ? '주문 취소' :
                                order.status === 'cooking' ? '조리 중' :
                                order.status === 'out_for_delivery' ? '배달 중' :
                                order.status === 'ready' ? '준비 완료' : '주문 접수'}
@@ -1075,10 +1110,20 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
                               <span className="detail-value">{formatTime(order.delivery_time || '')}</span>
                             </div>
                             <div className="detail-item">
+                              <span className="detail-label">주문 항목:</span>
+                              <span className="detail-value">
+                                {order.items && order.items.length > 0
+                                  ? order.items.map((item: any) => 
+                                      `${item.name || item.name_en || '항목'} x${item.quantity || 0}`
+                                    ).join(', ')
+                                  : '항목 없음'}
+                              </span>
+                            </div>
+                            <div className="detail-item">
                               <span className="detail-label">상태:</span>
                               <span className="detail-value">
                                 {order.status === 'delivered' ? '배달 완료' : 
-                                 order.status === 'cancelled' ? '취소됨' :
+                                 order.status === 'cancelled' ? '주문 취소' :
                                  order.status === 'cooking' ? '조리 중' :
                                  order.status === 'out_for_delivery' ? '배달 중' :
                                  order.status === 'ready' ? '준비 완료' : '주문 접수'}

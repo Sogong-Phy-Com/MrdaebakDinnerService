@@ -280,10 +280,13 @@ const VoiceOrderPage: React.FC = () => {
       recognition.interimResults = true; // 중간 결과도 받기
 
       let finalTranscript = '';
+      let silenceTimer: NodeJS.Timeout | null = null;
+      let lastSpeechTime = Date.now();
 
       recognition.onstart = () => {
         setRecording(true);
         finalTranscript = '';
+        lastSpeechTime = Date.now();
         // 녹음 시작 시 상담원 음성 중지
         stopSpeaking();
       };
@@ -297,8 +300,20 @@ const VoiceOrderPage: React.FC = () => {
           const transcript = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
             finalTranscript += transcript + ' ';
+            lastSpeechTime = Date.now();
+            // 최종 결과가 나오면 타이머 리셋
+            if (silenceTimer) {
+              clearTimeout(silenceTimer);
+              silenceTimer = null;
+            }
           } else {
             interimTranscript += transcript;
+            lastSpeechTime = Date.now();
+            // 중간 결과가 나오면 타이머 리셋
+            if (silenceTimer) {
+              clearTimeout(silenceTimer);
+              silenceTimer = null;
+            }
           }
         }
         
@@ -306,6 +321,26 @@ const VoiceOrderPage: React.FC = () => {
         if (interimTranscript) {
           console.log('인식 중:', interimTranscript);
         }
+        
+        // 2초간 말이 없으면 마이크 자동 종료
+        if (silenceTimer) {
+          clearTimeout(silenceTimer);
+        }
+        silenceTimer = setTimeout(() => {
+          const timeSinceLastSpeech = Date.now() - lastSpeechTime;
+          if (timeSinceLastSpeech >= 2000 && recognitionRef.current) {
+            console.log('2초간 말이 없어 마이크를 자동 종료합니다.');
+            recognitionRef.current.stop();
+            recognitionRef.current = null;
+            setRecording(false);
+            silenceTimer = null;
+            
+            // 최종 결과가 있으면 서버로 전송
+            if (finalTranscript.trim()) {
+              sendUtterance(finalTranscript.trim());
+            }
+          }
+        }, 2000);
       };
 
       recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -325,6 +360,10 @@ const VoiceOrderPage: React.FC = () => {
 
       recognition.onend = async () => {
         setRecording(false);
+        if (silenceTimer) {
+          clearTimeout(silenceTimer);
+          silenceTimer = null;
+        }
         
         // 최종 결과가 있으면 서버로 전송
         if (finalTranscript.trim()) {
