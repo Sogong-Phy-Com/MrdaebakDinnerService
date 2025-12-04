@@ -127,8 +127,12 @@ const EmployeeInventoryManagement: React.FC = () => {
                     // 남은 재고 = 현재 보유량 - 이번주 예약 수량
                     const availableQuantity = item.capacity_per_window - weeklyReserved;
                     
+                    const isDrink = item.category?.toLowerCase() === 'drink';
                     return (
-                      <tr key={item.menu_item_id} style={{ background: availableQuantity < 5 ? '#ffcccc' : 'transparent' }}>
+                      <tr key={item.menu_item_id} style={{ 
+                        background: availableQuantity < 5 ? '#ffcccc' : 'transparent',
+                        borderLeft: isDrink ? '5px solid #4a90e2' : 'none'
+                      }}>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
                           {item.menu_item_name} ({item.menu_item_name_en})
                         </td>
@@ -157,10 +161,10 @@ const EmployeeInventoryManagement: React.FC = () => {
                           {availableQuantity.toLocaleString()}
                         </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
-                          월요일, 금요일
+                          {isDrink ? '당일 보충' : '월요일, 금요일'}
                         </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
-                          {(() => {
+                          {isDrink ? '당일 보충' : (() => {
                             const today = new Date();
                             today.setHours(0, 0, 0, 0);
                             const dayOfWeek = today.getDay(); // 0=일요일, 1=월요일, ..., 6=토요일

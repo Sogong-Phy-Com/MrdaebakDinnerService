@@ -33,6 +33,7 @@ const AdminInventoryManagement: React.FC = () => {
 
   useEffect(() => {
     fetchInventory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWeek]);
 
   const getAuthHeaders = () => {
@@ -218,8 +219,12 @@ const AdminInventoryManagement: React.FC = () => {
                     const availableQuantity = item.capacity_per_window - weeklyReserved;
                     const orderedQty = orderedInventory[item.menu_item_id] || 0;
                     
+                    const isDrink = item.category?.toLowerCase() === 'drink';
                     return (
-                      <tr key={item.menu_item_id} style={{ background: availableQuantity < 5 ? '#ffcccc' : 'transparent' }}>
+                      <tr key={item.menu_item_id} style={{ 
+                        background: availableQuantity < 5 ? '#ffcccc' : 'transparent',
+                        borderLeft: isDrink ? '5px solid #4a90e2' : 'none'
+                      }}>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
                           {item.menu_item_name || `메뉴 ${item.menu_item_id}`} {item.menu_item_name_en && `(${item.menu_item_name_en})`}
                         </td>
@@ -251,10 +256,10 @@ const AdminInventoryManagement: React.FC = () => {
                           {availableQuantity.toLocaleString()}
                         </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
-                          월요일, 금요일
+                          {isDrink ? '당일 보충' : '월요일, 금요일'}
                         </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
-                          {(() => {
+                          {isDrink ? '당일 보충' : (() => {
                             // 선택된 주의 월요일과 금요일 계산
                             const today = new Date();
                             today.setHours(0, 0, 0, 0);

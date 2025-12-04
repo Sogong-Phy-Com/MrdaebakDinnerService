@@ -42,8 +42,13 @@ const VoiceOrderPage: React.FC = () => {
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [showPasswordModal, setShowPasswordModal] = useState<boolean>(false);
+  const [showOrderConfirmation, setShowOrderConfirmation] = useState<boolean>(false);
+  const [confirmedOrderData, setConfirmedOrderData] = useState<any>(null);
+  const [userCardInfo, setUserCardInfo] = useState<any>(null);
   const [password, setPassword] = useState<string>('');
   const [passwordError, setPasswordError] = useState<string>('');
+  const [agreeCardUse, setAgreeCardUse] = useState<boolean>(false);
+  const [agreePolicy, setAgreePolicy] = useState<boolean>(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
   const lastSpokenMessageIdRef = useRef<string>('');
@@ -127,6 +132,23 @@ const VoiceOrderPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // 카드 정보 가져오기
+    const fetchUserCardInfo = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        const response = await axios.get(`${API_URL}/auth/me`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        setUserCardInfo(response.data);
+      } catch (err) {
+        console.error('카드 정보 조회 실패:', err);
+      }
+    };
+    fetchUserCardInfo();
+  }, []);
+
+  useEffect(() => {
     startSession();
     return () => {
       if (recognitionRef.current) {
@@ -138,6 +160,7 @@ const VoiceOrderPage: React.FC = () => {
         synthesisRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 상담원 메시지가 추가될 때마다 자동으로 음성 재생
@@ -422,6 +445,17 @@ const VoiceOrderPage: React.FC = () => {
       
       setShowPasswordModal(false);
       setPassword('');
+      setPasswordError('');
+      
+      // 주문 확인 모달 표시 (일반 주문과 동일한 스타일)
+      setConfirmedOrderData({
+        orderId: response.data.orderId,
+        totalPrice: response.data.totalPrice,
+        summary: response.data.summary,
+        confirmationMessage: response.data.confirmationMessage
+      });
+      setShowOrderConfirmation(true);
+      
       setConfirmation(response.data.confirmationMessage);
       setSummary(response.data.summary);
       setMessages((prev) => [
@@ -664,6 +698,137 @@ const VoiceOrderPage: React.FC = () => {
                 className="btn btn-primary"
                 onClick={handlePasswordConfirm}
                 disabled={loading || !password}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 주문 확인 모달 (일반 주문과 동일한 스타일) */}
+      {showOrderConfirmation && confirmedOrderData && (
+        <div className="modal-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000
+        }} onClick={() => {
+          setShowOrderConfirmation(false);
+          setConfirmedOrderData(null);
+          setAgreeCardUse(false);
+          setAgreePolicy(false);
+        }}>
+          <div style={{
+            background: '#1a1a1a',
+            border: '2px solid #d4af37',
+            borderRadius: '8px',
+            padding: '30px',
+            maxWidth: '600px',
+            width: '90%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            color: '#fff'
+          }} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ color: '#d4af37', marginBottom: '20px' }}>주문 확인</h2>
+            
+            {/* 영수증 */}
+            <div style={{
+              background: '#2a2a2a',
+              padding: '20px',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              border: '1px solid #d4af37'
+            }}>
+              <h3 style={{ color: '#d4af37', marginBottom: '15px' }}>주문 내역</h3>
+              <div style={{ marginBottom: '10px' }}>
+                <strong>디너:</strong> {summary?.dinnerName || '-'}
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <strong>서빙 스타일:</strong> {summary?.servingStyle || '-'}
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <strong>배달 시간:</strong> {summary?.deliverySlot || '-'}
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <strong>배달 주소:</strong> {summary?.deliveryAddress || '-'}
+              </div>
+              <div style={{ marginBottom: '15px', paddingTop: '15px', borderTop: '1px solid #d4af37' }}>
+                <strong>주문 항목:</strong>
+                <div style={{ marginTop: '10px', marginLeft: '20px' }}>
+                  {summary?.items?.map((item: any, idx: number) => (
+                    <div key={idx} style={{ marginBottom: '5px' }}>
+                      {item.name} x {item.quantity}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{
+                paddingTop: '15px',
+                borderTop: '2px solid #d4af37',
+                fontSize: '18px',
+                fontWeight: 'bold',
+                color: '#d4af37'
+              }}>
+                총 금액: {confirmedOrderData.totalPrice?.toLocaleString() || '0'}원
+              </div>
+            </div>
+
+            <div className="card-info-block" style={{ marginBottom: '20px' }}>
+              <h3 style={{ color: '#d4af37', marginBottom: '10px' }}>카드 결제 정보</h3>
+              <p style={{ marginBottom: '8px' }}>
+                카드 번호: {userCardInfo?.cardNumber || '등록된 카드가 없습니다'}
+              </p>
+              <div className="consent-check">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={agreeCardUse}
+                    onChange={(e) => setAgreeCardUse(e.target.checked)}
+                  />
+                  등록된 카드로 결제하는 것에 동의합니다.
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={agreePolicy}
+                    onChange={(e) => setAgreePolicy(e.target.checked)}
+                  />
+                  주문 변경 및 취소는 관리자 승인 후 확정됨을 이해했습니다.
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowOrderConfirmation(false);
+                  setConfirmedOrderData(null);
+                  setAgreeCardUse(false);
+                  setAgreePolicy(false);
+                }}
+                style={{ flex: 1 }}
+              >
+                취소
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setShowOrderConfirmation(false);
+                  setConfirmedOrderData(null);
+                  setAgreeCardUse(false);
+                  setAgreePolicy(false);
+                  // 주문 완료 후 주문 내역 페이지로 이동
+                  window.location.href = '/orders';
+                }}
+                style={{ flex: 1 }}
               >
                 확인
               </button>

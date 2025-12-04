@@ -131,8 +131,13 @@
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
-  background: rgba(0, 0, 0, 0.5);
-  color: var(--white);
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 16px;
+}
+
+.text-input-form input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .examples {
@@ -176,10 +181,10 @@
 }
 
 .summary-card {
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(40, 40, 40, 0.8);
   border-radius: 14px;
   padding: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(212, 175, 55, 0.3);
 }
 
 .summary-row {
@@ -187,26 +192,35 @@
   justify-content: space-between;
   margin-bottom: 10px;
   font-size: 0.95rem;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .summary-row strong {
-  color: var(--white);
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .summary-section {
   margin-top: 16px;
 }
 
+.summary-section h4 {
+  color: var(--gold);
+  margin-bottom: 10px;
+  font-size: 1rem;
+}
+
 .summary-item {
   display: flex;
   justify-content: space-between;
   padding: 6px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .quantity {
   color: var(--gold);
+  font-weight: 600;
 }
 
 .missing-fields ul {
