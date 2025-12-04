@@ -410,19 +410,16 @@ public class OrderController {
             }
 
             Long userId = Long.parseLong(authentication.getName());
-            ReservationChangeRequestCreateDto dto = new ReservationChangeRequestCreateDto();
-            dto.setDinnerTypeId(request.getDinnerTypeId());
-            dto.setServingStyle(request.getServingStyle());
-            dto.setDeliveryTime(request.getDeliveryTime());
-            dto.setDeliveryAddress(request.getDeliveryAddress());
-            dto.setItems(request.getItems());
-
-            ReservationChangeRequestResponseDto responseDto =
-                    orderChangeRequestService.createChangeRequest(orderId, userId, dto);
+            
+            // 기존 주문 삭제 후 신규 주문 생성 방식으로 수정
+            Order newOrder = orderService.modifyOrder(orderId, userId, request);
             
             return ResponseEntity.ok(Map.of(
-                    "message", "예약 변경 요청이 접수되었습니다. 관리자 승인 후 확정됩니다.",
-                    "change_request", responseDto
+                    "message", "주문이 수정되었습니다. 기존 주문은 취소되었고, 새 주문이 생성되었습니다. 관리자 승인을 기다려주세요.",
+                    "order_id", newOrder.getId(),
+                    "admin_approval_status", newOrder.getAdminApprovalStatus(),
+                    "status", newOrder.getStatus(),
+                    "new_order_total_price", newOrder.getTotalPrice()
             ));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));

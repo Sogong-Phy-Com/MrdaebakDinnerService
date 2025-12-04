@@ -66,11 +66,11 @@ public class MenuController {
     public List<Map<String, Object>> getServingStyles() {
         return List.of(
                 Map.of("name", "simple", "name_ko", "심플", "price_multiplier", 1.0,
-                        "description", "플라스틱 접시와 플라스틱 컵, 종이 냅킨, 플라스틱 쟁반"),
+                        "description", "플라스틱 접시와 플라스틱 컵, 종이 냅킨이 플라스틱 쟁반에 제공됩니다. 와인이 포함되면 플라스틱 잔이 제공됩니다."),
                 Map.of("name", "grand", "name_ko", "그랜드", "price_multiplier", 1.3,
-                        "description", "도자기 접시와 도자기 컵, 흰색 면 냅킨, 나무 쟁반"),
+                        "description", "도자기 접시와 도자기 컵, 흰색 면 냅킨이 나무 쟁반에 제공됩니다. 와인이 포함되면 플라스틱 잔이 제공됩니다."),
                 Map.of("name", "deluxe", "name_ko", "디럭스", "price_multiplier", 1.6,
-                        "description", "꽃들이 있는 작은 꽃병, 도자기 접시와 도자기 컵, 린넨 냅킨, 나무 쟁반")
+                        "description", "꽃들이 있는 작은 꽃병, 도자기 접시와 도자기 컵, 린넨 냅킨이 나무 쟁반에 제공됩니다. 와인이 포함되면 유리 잔이 제공됩니다.")
         );
     }
 }

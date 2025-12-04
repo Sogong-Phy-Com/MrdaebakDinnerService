@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -376,14 +377,48 @@ public class OrderService {
             throw new RuntimeException("이 주문을 수정할 권한이 없습니다.");
         }
 
-        // 배달 시간 확인 - 조리 3시간 전까지만 수정 가능
-        LocalDateTime deliveryDateTime = DeliveryTimeUtils.parseDeliveryTime(request.getDeliveryTime());
+        // 주문 상태 확인: PENDING 또는 APPROVED 상태만 수정 가능
+        String approvalStatus = order.getAdminApprovalStatus() != null ? order.getAdminApprovalStatus().toUpperCase() : "PENDING";
+        if (!"PENDING".equals(approvalStatus) && !"APPROVED".equals(approvalStatus)) {
+            throw new RuntimeException("이 주문은 수정할 수 없습니다. (승인 상태: " + approvalStatus + ")");
+        }
+
+        // 취소되거나 배달 완료된 주문은 수정 불가
+        if ("cancelled".equalsIgnoreCase(order.getStatus()) || "delivered".equalsIgnoreCase(order.getStatus())) {
+            throw new RuntimeException("취소되거나 배달 완료된 주문은 수정할 수 없습니다.");
+        }
+
+        // APPROVED 상태의 주문은 배달 3시간 전까지 수정 가능
+        if ("APPROVED".equals(approvalStatus)) {
+            LocalDateTime deliveryDateTime = order.getDeliveryDateTime();
+            LocalDateTime now = LocalDateTime.now();
+            long hoursUntilDelivery = java.time.Duration.between(now, deliveryDateTime).toHours();
+            
+            if (hoursUntilDelivery < 3) {
+                throw new RuntimeException("주문 수정 가능 기한이 지났습니다. (배달 시간 3시간 전 이후에는 변경 불가)");
+            }
+        }
+        // PENDING 상태의 주문은 항상 수정 가능 (아직 승인 전이므로)
+
+        // 새 배달 시간 검증: 최소 3시간 전에 주문 가능
+        LocalDateTime newDeliveryDateTime = DeliveryTimeUtils.parseDeliveryTime(request.getDeliveryTime());
         LocalDateTime now = LocalDateTime.now();
-        long hoursUntilDelivery = java.time.Duration.between(now, deliveryDateTime).toHours();
+        long hoursUntilDelivery = java.time.Duration.between(now, newDeliveryDateTime).toHours();
         
         if (hoursUntilDelivery < 3) {
-            throw new RuntimeException("주문 수정은 배달 시간 3시간 전까지만 가능합니다.");
+            throw new RuntimeException("배달 시간은 최소 3시간 전에 주문해야 합니다.");
         }
+
+        System.out.println("[OrderService] 주문 수정 시작 - 기존 주문 ID: " + orderId + ", 사용자 ID: " + userId);
+
+        // 당일 예약 변경 수수료 계산 (만원)
+        LocalDate today = LocalDate.now();
+        LocalDate deliveryDate = newDeliveryDateTime.toLocalDate();
+        boolean isSameDayModification = today.equals(deliveryDate);
+        int modificationFee = isSameDayModification ? 10000 : 0; // 당일 변경 시 만원 추가
+        
+        System.out.println("[OrderService] 주문 수정 수수료 계산 - 당일 변경: " + isSameDayModification + 
+                ", 수수료: " + modificationFee + "원");
 
         // 기존 주문 취소 처리 (재귀 호출 방지를 위해 직접 처리)
         order.setStatus("cancelled");
@@ -392,21 +427,39 @@ public class OrderService {
         // 재고 예약 취소
         try {
             inventoryService.releaseReservationsForOrder(orderId);
+            System.out.println("[OrderService] 기존 주문 " + orderId + "의 재고 예약 취소 완료");
         } catch (Exception e) {
             System.err.println("[OrderService] 재고 예약 취소 실패: " + e.getMessage());
+            e.printStackTrace();
         }
         
         // 배달 스케줄 취소
         try {
             deliverySchedulingService.cancelScheduleForOrder(orderId);
+            System.out.println("[OrderService] 기존 주문 " + orderId + "의 배달 스케줄 취소 완료");
         } catch (Exception e) {
             System.err.println("[OrderService] 배달 스케줄 취소 실패: " + e.getMessage());
+            e.printStackTrace();
         }
         
         orderRepository.save(order);
+        System.out.println("[OrderService] 기존 주문 " + orderId + " 취소 완료");
         
-        // 새 주문 생성 (관리자 승인 필요)
-        return createOrderInternal(userId, request);
+        // 새 주문 생성 (관리자 승인 필요 - PENDING 상태로 생성)
+        // 수수료가 있으면 주문 금액에 추가
+        Order newOrder = createOrderInternal(userId, request);
+        if (modificationFee > 0) {
+            int newTotalPrice = newOrder.getTotalPrice() + modificationFee;
+            newOrder.setTotalPrice(newTotalPrice);
+            newOrder = orderRepository.save(newOrder);
+            System.out.println("[OrderService] 주문 수정 수수료 적용 - 기존 금액: " + 
+                    (newOrder.getTotalPrice() - modificationFee) + "원, 수수료: " + modificationFee + 
+                    "원, 최종 금액: " + newOrder.getTotalPrice() + "원");
+        }
+        System.out.println("[OrderService] 신규 주문 생성 완료 - 주문 ID: " + newOrder.getId() + 
+                ", 승인 상태: " + newOrder.getAdminApprovalStatus() + 
+                ", 총 금액: " + newOrder.getTotalPrice() + "원 (수수료 포함)");
+        return newOrder;
     }
 
 }

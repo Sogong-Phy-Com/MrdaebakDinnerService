@@ -171,9 +171,10 @@ useEffect(() => {
     }
     const dinner = dinners.find(d => d.id === selectedDinner);
     if (dinner) {
+      // 디너의 기본 포함 항목들을 기본 수량으로 설정
       const items = dinner.menu_items.map(item => ({
         menu_item_id: item.id,
-        quantity: 1
+        quantity: item.quantity || 1 // DinnerMenuItem의 quantity 사용 (기본값 1)
       }));
       setOrderItems(items);
     }
@@ -498,11 +499,15 @@ useEffect(() => {
   const updateItemQuantity = (menuItemId: number, delta: number) => {
     setOrderItems(prev => {
       const existing = prev.find(item => item.menu_item_id === menuItemId);
+      
       if (existing) {
         const newQuantity = existing.quantity + delta;
+        
+        // 0 이하가 되면 제거 (하지만 가격은 줄어들지 않음 - calculateTotal에서 처리)
         if (newQuantity <= 0) {
           return prev.filter(item => item.menu_item_id !== menuItemId);
         }
+        
         return prev.map(item =>
           item.menu_item_id === menuItemId
             ? { ...item, quantity: newQuantity }
@@ -524,13 +529,56 @@ useEffect(() => {
     const style = servingStyles.find(s => s.name === selectedStyle);
     const styleMultiplier = style?.price_multiplier || 1;
 
+    // 기본 가격 (이미 기본 포함 항목들의 가격이 포함됨) - 항상 유지됨
     const basePrice = dinner.base_price * styleMultiplier;
-    const itemsPrice = orderItems.reduce((sum, item) => {
+    
+    // 기본 포함 항목들의 기본 수량과 가격 계산
+    const defaultItemsPrice = dinner.menu_items.reduce((sum, defaultItem) => {
+      const menuItem = menuItems.find(m => m.id === defaultItem.id);
+      const defaultQuantity = defaultItem.quantity || 1;
+      return sum + (menuItem?.price || 0) * defaultQuantity;
+    }, 0);
+    
+    // 현재 주문 항목들의 총 가격
+    const currentItemsPrice = orderItems.reduce((sum, item) => {
       const menuItem = menuItems.find(m => m.id === item.menu_item_id);
       return sum + (menuItem?.price || 0) * item.quantity;
     }, 0);
+    
+    // 추가 수량만 계산 (현재 가격 - 기본 포함 가격)
+    // 음수가 되더라도 기본 가격은 줄어들지 않음
+    const additionalItemsPrice = Math.max(0, currentItemsPrice - defaultItemsPrice);
+    
+    // 기본 가격 + 추가 항목 가격 (기본 가격은 항상 유지)
+    const subtotal = basePrice + additionalItemsPrice;
+    
+    // 주문 수정 시 당일 변경 수수료 계산
+    let modificationFee = 0;
+    if (isModifying && deliveryTime) {
+      const now = new Date();
+      const deliveryDateTime = new Date(deliveryTime);
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const deliveryDate = new Date(deliveryDateTime.getFullYear(), deliveryDateTime.getMonth(), deliveryDateTime.getDate());
+      const isSameDay = today.getTime() === deliveryDate.getTime();
+      
+      if (isSameDay) {
+        modificationFee = 10000; // 당일 변경 시 만원 추가
+      }
+    }
 
-    return basePrice + itemsPrice;
+    return subtotal + modificationFee;
+  };
+
+  const calculateModificationFee = () => {
+    if (!isModifying || !deliveryTime) return 0;
+    
+    const now = new Date();
+    const deliveryDateTime = new Date(deliveryTime);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const deliveryDate = new Date(deliveryDateTime.getFullYear(), deliveryDateTime.getMonth(), deliveryDateTime.getDate());
+    const isSameDay = today.getTime() === deliveryDate.getTime();
+    
+    return isSameDay ? 10000 : 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -604,10 +652,11 @@ useEffect(() => {
       return;
     }
 
-    if (isModifying && (!changeReason || changeReason.trim().length < 5)) {
-      setError('예약 변경 사유를 5자 이상 입력해주세요.');
-      return;
-    }
+    // 주문 수정 시에는 변경 사유가 필수가 아님 (직접 주문 수정 방식으로 변경됨)
+    // if (isModifying && (!changeReason || changeReason.trim().length < 5)) {
+    //   setError('예약 변경 사유를 5자 이상 입력해주세요.');
+    //   return;
+    // }
 
     // 중복 제출 방지 - 두 번째 체크 (이미 위에서 체크했지만 추가 보호)
     if (loading || isSubmitting || orderSubmissionRef.current) {
@@ -648,10 +697,11 @@ useEffect(() => {
       return;
     }
 
-    if (isModifying && (!changeReason || changeReason.trim().length < 5)) {
-      alert('예약 변경 사유를 5자 이상 입력해주세요.');
-      return;
-    }
+    // 주문 수정 시에는 변경 사유가 필수가 아님 (직접 주문 수정 방식으로 변경됨)
+    // if (isModifying && (!changeReason || changeReason.trim().length < 5)) {
+    //   alert('예약 변경 사유를 5자 이상 입력해주세요.');
+    //   return;
+    // }
 
     if (!agreeCardUse || !agreePolicy) {
       alert('카드 결제 동의 및 정책 동의에 체크해주세요.');
@@ -702,91 +752,59 @@ useEffect(() => {
       if (isModifying && modifyOrderId) {
         // 제출 ID 확인 (다른 제출이 이미 진행 중이면 중단)
         if (orderSubmissionRef.current !== submissionId) {
-          console.log('[예약 변경 요청] 다른 제출이 이미 진행 중입니다. 중단합니다.');
+          console.log('[주문 수정] 다른 제출이 이미 진행 중입니다. 중단합니다.');
           setLoading(false);
           setIsSubmitting(false);
           return;
         }
 
-        const changePayload = {
+        const modifyPayload = {
           dinner_type_id: pendingOrderData.dinner_type_id,
           serving_style: pendingOrderData.serving_style,
           delivery_time: pendingOrderData.delivery_time,
           delivery_address: pendingOrderData.delivery_address,
-          items: pendingOrderData.items,
-          reason: changeReason
+          items: pendingOrderData.items
         };
 
-        let response;
         try {
-          // 기존 변경 요청을 수정하는 경우 PUT, 새로 생성하는 경우 POST
-          if (isEditingChangeRequest && editRequestId) {
-            response = await axios.put(`${API_URL}/reservations/${modifyOrderId}/change-requests/${editRequestId}`, changePayload, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'X-Request-ID': submissionId
-              }
-            });
-            console.log('[예약 변경 요청 수정] 성공:', response.data);
-            alert('변경 요청이 수정되었습니다. 관리자 승인 전까지는 다시 변경할 수 있습니다.');
-          } else {
-            response = await axios.post(`${API_URL}/reservations/${modifyOrderId}/change-requests`, changePayload, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'X-Request-ID': submissionId // 중복 방지를 위한 헤더
-              }
-            });
-            console.log('[예약 변경 요청] 성공:', response.data);
-            alert('예약 변경 요청이 접수되었습니다. 관리자 승인 후 최종 확정됩니다.');
+          const response = await axios.post(`${API_URL}/orders/${modifyOrderId}/modify`, modifyPayload, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Request-ID': submissionId
+            }
+          });
+          console.log('[주문 수정] 성공:', response.data);
+          
+          // 수수료 정보 확인
+          const now = new Date();
+          const newDeliveryDateTime = new Date(pendingOrderData.delivery_time);
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const deliveryDate = new Date(newDeliveryDateTime.getFullYear(), newDeliveryDateTime.getMonth(), newDeliveryDateTime.getDate());
+          const isSameDay = today.getTime() === deliveryDate.getTime();
+          const modificationFee = isSameDay ? 10000 : 0;
+          
+          let message = `주문이 수정되었습니다.\n\n`;
+          if (modificationFee > 0) {
+            message += `당일 예약 변경으로 인해 추가금 ${modificationFee.toLocaleString()}원이 부과되었습니다.\n`;
           }
+          message += `기존 주문은 취소되었고, 새 주문이 생성되었습니다.\n주문 ID: ${response.data.order_id}\n총 금액: ${response.data.new_order_total_price?.toLocaleString() || '확인 중'}원\n\n관리자 승인을 기다려주세요.`;
+          alert(message);
         } catch (err: any) {
-          // 활성 변경 요청이 이미 존재하는 경우 (400 또는 500)
-          if (err.response?.status === 400 || err.response?.status === 500) {
-            const errorMessage = err.response?.data?.message || err.response?.data?.error || '';
-            if (errorMessage.includes('처리 중인 예약 변경 요청이 이미 존재합니다') || 
-                errorMessage.includes('이미 존재합니다')) {
-              alert('이미 처리 중인 예약 변경 요청이 있습니다.\n주문 목록에서 변경 요청 상태를 확인해주세요.');
-              setLoading(false);
-              setIsSubmitting(false);
-              setShowOrderConfirmation(false);
-              setOrderPassword('');
-              orderSubmissionRef.current = null;
-              navigate('/orders');
-              return;
-            }
-            // 기타 클라이언트 에러 (400)는 사용자에게 표시
-            if (err.response?.status === 400) {
-              const errorMsg = errorMessage || '예약 변경 요청 생성에 실패했습니다.';
-              alert(errorMsg);
-              setLoading(false);
-              setIsSubmitting(false);
-              setShowOrderConfirmation(false);
-              setOrderPassword('');
-              orderSubmissionRef.current = null;
-              return;
-            }
-          }
-          throw err;
-        }
-
-        // 제출 ID 확인 (다른 제출이 이미 완료되었으면 중단)
-        if (orderSubmissionRef.current !== submissionId) {
-          console.log('[예약 변경 요청] 다른 제출이 이미 완료되었습니다. 중단합니다.');
+          const errorMsg = err.response?.data?.error || err.message || '주문 수정에 실패했습니다.';
+          alert(errorMsg);
+        } finally {
           setLoading(false);
           setIsSubmitting(false);
-          return;
+          setShowOrderConfirmation(false);
+          setOrderPassword('');
+          setPendingOrderData(null);
+          setAgreeCardUse(false);
+          setAgreePolicy(false);
+          setChangeReason('');
+          orderSubmissionRef.current = null;
+          navigate('/orders');
         }
-
-        setLoading(false);
-        setIsSubmitting(false);
-        setShowOrderConfirmation(false);
-        setOrderPassword('');
-        setPendingOrderData(null);
-        setAgreeCardUse(false);
-        setAgreePolicy(false);
-        setChangeReason('');
-        orderSubmissionRef.current = null;
-        navigate('/orders');
+        return;
       } else {
         // Create new order - 한 번만 호출되도록 보장
         console.log('[주문 생성] 주문 생성 요청 시작 - 제출 ID:', orderSubmissionRef.current);
@@ -964,8 +982,10 @@ useEffect(() => {
         </div>
         {isModifying && (
           <div className="info-banner warning" style={{ marginBottom: '16px' }}>
-            배달 3일 전까지는 수수료 없이 변경할 수 있으며, 3~1일 전에는 30,000원 변경 수수료가 부과됩니다.
-            배달 1일 전 00:00 이후에는 변경이 불가합니다.
+            <strong>주문 수정 안내</strong><br />
+            • 전날까지는 재고 내에서 무료로 수정 가능합니다.<br />
+            • 당일 예약 변경 시 추가금 10,000원이 부과됩니다.<br />
+            • 배달 시간 3시간 전 이후에는 변경이 불가합니다.
           </div>
         )}
 
@@ -1002,6 +1022,7 @@ useEffect(() => {
                       <label
                         key={style.name}
                         className={`style-option ${disabled ? 'disabled' : ''} ${selectedStyle === style.name ? 'selected' : ''}`}
+                        title={style.description}
                       >
                         <input
                           type="radio"
@@ -1015,6 +1036,18 @@ useEffect(() => {
                         <div className="style-price">
                           {style.price_multiplier > 1 ? `+${((style.price_multiplier - 1) * 100).toFixed(0)}%` : '기본'}
                         </div>
+                        {selectedStyle === style.name && (
+                          <div style={{ 
+                            fontSize: '11px', 
+                            color: '#ccc', 
+                            marginTop: '8px',
+                            textAlign: 'center',
+                            lineHeight: '1.4',
+                            padding: '0 5px'
+                          }}>
+                            {style.description}
+                          </div>
+                        )}
                       </label>
                     );
                   })}
@@ -1023,13 +1056,24 @@ useEffect(() => {
 
               <div className="form-group">
                 <label>주문 항목</label>
+                <div className="info-banner warning" style={{ marginBottom: '15px', fontSize: '13px' }}>
+                  ⚠️ 메뉴 구성은 0으로 줄일 수 있지만, 기본 가격은 줄어들지 않습니다.
+                  <br />
+                  기본 가격에는 이미 기본 포함 항목들의 가격이 포함되어 있습니다.
+                </div>
                 <div className="order-items-section">
                   {selectedDinnerData?.menu_items.map(item => {
                     const orderItem = orderItems.find(oi => oi.menu_item_id === item.id);
                     const quantity = orderItem?.quantity || 0;
+                    const defaultQuantity = item.quantity || 1; // 기본 포함 수량
                     return (
                       <div key={item.id} className="order-item">
-                        <span>{item.name} - {item.price.toLocaleString()}원</span>
+                        <span>
+                          {item.name} - {item.price.toLocaleString()}원
+                          <span style={{ fontSize: '12px', color: '#999', marginLeft: '8px' }}>
+                            (기본 {defaultQuantity}개 포함)
+                          </span>
+                        </span>
                         <div className="quantity-controls">
                           <button
                             type="button"
@@ -1382,9 +1426,21 @@ useEffect(() => {
                   <div style={{ marginTop: '8px', whiteSpace: 'pre-wrap' }}>
                     {changeReason || '사유가 입력되지 않았습니다.'}
                   </div>
-                  <div className="info-banner warning" style={{ marginTop: '10px' }}>
-                    관리자 승인 시 변경 수수료와 차액 결제/환불이 자동으로 계산됩니다.
-                  </div>
+                  {calculateModificationFee() > 0 && (
+                    <div style={{ marginTop: '10px', padding: '10px', background: '#3a2a1a', borderRadius: '4px', border: '1px solid #d4af37' }}>
+                      <strong style={{ color: '#d4af37' }}>변경 수수료:</strong>
+                      <span style={{ marginLeft: '8px', color: '#fff' }}>
+                        {calculateModificationFee().toLocaleString()}원 추가 (당일 예약 변경)
+                      </span>
+                    </div>
+                  )}
+                  {calculateModificationFee() === 0 && (
+                    <div style={{ marginTop: '10px', padding: '10px', background: '#2a3a2a', borderRadius: '4px', border: '1px solid #4aaf4a' }}>
+                      <span style={{ color: '#4aaf4a' }}>
+                        전날까지는 재고 내에서 무료로 수정 가능합니다.
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
               <div style={{
@@ -1395,6 +1451,11 @@ useEffect(() => {
                 color: '#d4af37'
               }}>
                 총 금액: {calculateTotal().toLocaleString()}원
+                {calculateModificationFee() > 0 && (
+                  <div style={{ fontSize: '14px', color: '#ffaa00', marginTop: '5px', fontWeight: 'normal' }}>
+                    (기본 금액 + 변경 수수료 {calculateModificationFee().toLocaleString()}원 포함)
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1462,7 +1523,7 @@ useEffect(() => {
               <button
                 className="btn btn-primary"
                 onClick={handleConfirmOrder}
-                disabled={!orderPassword || loading || !agreeCardUse || !agreePolicy || (isModifying && (!changeReason || changeReason.trim().length < 5))}
+                disabled={!orderPassword || loading || !agreeCardUse || !agreePolicy}
                 style={{ flex: 1 }}
               >
                 {loading ? '주문 처리 중...' : '주문 확정'}

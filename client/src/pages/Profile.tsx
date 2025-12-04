@@ -446,15 +446,103 @@ const Profile: React.FC = () => {
                       <ul className="consent-list">
                         <li>
                           <span>이름 사용</span>
-                          <strong>{user?.consentName ? '동의' : '비동의'}</strong>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={user?.consentName || false}
+                              onChange={async (e) => {
+                                try {
+                                  const token = localStorage.getItem('token');
+                                  const response = await axios.patch(`${API_URL}/auth/me/consent`, 
+                                    { consentName: e.target.checked },
+                                    { headers: { 'Authorization': `Bearer ${token}` } }
+                                  );
+                                  if (response.data) {
+                                    updateUser({ ...user, consentName: response.data.consentName });
+                                    alert('개인정보 동의 현황이 업데이트되었습니다.');
+                                  }
+                                } catch (err: any) {
+                                  alert(err.response?.data?.error || '업데이트에 실패했습니다.');
+                                }
+                              }}
+                            />
+                            <strong>{user?.consentName ? '동의' : '비동의'}</strong>
+                          </label>
                         </li>
                         <li>
                           <span>주소 저장</span>
-                          <strong>{user?.consentAddress ? '동의' : '비동의'}</strong>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={user?.consentAddress || false}
+                              onChange={async (e) => {
+                                try {
+                                  const token = localStorage.getItem('token');
+                                  const response = await axios.patch(`${API_URL}/auth/me/consent`, 
+                                    { consentAddress: e.target.checked },
+                                    { headers: { 'Authorization': `Bearer ${token}` } }
+                                  );
+                                  if (response.data) {
+                                    updateUser({ ...user, consentAddress: response.data.consentAddress });
+                                    alert('개인정보 동의 현황이 업데이트되었습니다.');
+                                  }
+                                } catch (err: any) {
+                                  alert(err.response?.data?.error || '업데이트에 실패했습니다.');
+                                }
+                              }}
+                            />
+                            <strong>{user?.consentAddress ? '동의' : '비동의'}</strong>
+                          </label>
                         </li>
                         <li>
                           <span>연락처 알림</span>
-                          <strong>{user?.consentPhone ? '동의' : '비동의'}</strong>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={user?.consentPhone || false}
+                              onChange={async (e) => {
+                                try {
+                                  const token = localStorage.getItem('token');
+                                  const response = await axios.patch(`${API_URL}/auth/me/consent`, 
+                                    { consentPhone: e.target.checked },
+                                    { headers: { 'Authorization': `Bearer ${token}` } }
+                                  );
+                                  if (response.data) {
+                                    updateUser({ ...user, consentPhone: response.data.consentPhone });
+                                    alert('개인정보 동의 현황이 업데이트되었습니다.');
+                                  }
+                                } catch (err: any) {
+                                  alert(err.response?.data?.error || '업데이트에 실패했습니다.');
+                                }
+                              }}
+                            />
+                            <strong>{user?.consentPhone ? '동의' : '비동의'}</strong>
+                          </label>
+                        </li>
+                        <li>
+                          <span>단골 할인 안내</span>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={user?.loyaltyConsent || false}
+                              onChange={async (e) => {
+                                try {
+                                  const token = localStorage.getItem('token');
+                                  const response = await axios.patch(`${API_URL}/auth/me/consent`, 
+                                    { loyaltyConsent: e.target.checked },
+                                    { headers: { 'Authorization': `Bearer ${token}` } }
+                                  );
+                                  if (response.data) {
+                                    updateUser({ ...user, loyaltyConsent: response.data.loyaltyConsent });
+                                    alert('개인정보 동의 현황이 업데이트되었습니다.');
+                                  }
+                                } catch (err: any) {
+                                  alert(err.response?.data?.error || '업데이트에 실패했습니다.');
+                                }
+                              }}
+                            />
+                            <strong>{user?.loyaltyConsent ? '동의' : '비동의'}</strong>
+                          </label>
                         </li>
                       </ul>
                       <div className={`loyalty-message ${user?.loyaltyConsent ? 'success' : 'muted'}`}>

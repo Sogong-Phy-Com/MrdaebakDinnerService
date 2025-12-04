@@ -14,6 +14,7 @@ interface InventoryItem {
   reserved: number;
   remaining: number;
   weekly_reserved?: number;
+  reserved_by_date?: Record<string, number>; // 날짜별 예약 수량 (예: {"12/28": 1, "12/29": 2})
   ordered_quantity?: number;
   window_start: string;
   window_end: string;
@@ -49,7 +50,23 @@ const AdminInventoryManagement: React.FC = () => {
       setInventoryLoading(true);
       setInventoryError('');
       const headers = getAuthHeaders();
-      const response = await axios.get(`${API_URL}/inventory`, { headers });
+      // 선택된 주의 시작일(월요일) 계산
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dayOfWeek = today.getDay(); // 0=일요일, 1=월요일, ..., 6=토요일
+      const daysFromMonday = (dayOfWeek === 0 ? 6 : dayOfWeek - 1); // 월요일 기준으로 계산
+      const currentWeekMonday = new Date(today);
+      currentWeekMonday.setDate(today.getDate() - daysFromMonday);
+      const selectedWeekMonday = new Date(currentWeekMonday);
+      selectedWeekMonday.setDate(currentWeekMonday.getDate() + (selectedWeek * 7));
+      // 로컬 시간 기준으로 YYYY-MM-DD 형식 생성 (UTC 변환 없이)
+      const year = selectedWeekMonday.getFullYear();
+      const month = String(selectedWeekMonday.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedWeekMonday.getDate()).padStart(2, '0');
+      const weekStartStr = `${year}-${month}-${day}`;
+      console.log('[AdminInventoryManagement] 선택된 주 시작일:', weekStartStr, 'selectedWeek:', selectedWeek, '원본 날짜:', selectedWeekMonday);
+      const response = await axios.get(`${API_URL}/inventory?weekStart=${weekStartStr}`, { headers });
+      console.log('[AdminInventoryManagement] 응답 데이터:', response.data);
       if (response.data && Array.isArray(response.data)) {
         setInventoryItems(response.data);
         const defaultValues: Record<number, number | ''> = {};
@@ -150,11 +167,16 @@ const AdminInventoryManagement: React.FC = () => {
           <span style={{ minWidth: '150px', textAlign: 'center' }}>
             {(() => {
               const today = new Date();
-              const weekStart = new Date(today);
-              weekStart.setDate(today.getDate() - today.getDay() + (selectedWeek * 7));
-              const weekEnd = new Date(weekStart);
-              weekEnd.setDate(weekStart.getDate() + 6);
-              return `${weekStart.toLocaleDateString('ko-KR')} ~ ${weekEnd.toLocaleDateString('ko-KR')}`;
+              today.setHours(0, 0, 0, 0);
+              const dayOfWeek = today.getDay(); // 0=일요일, 1=월요일, ..., 6=토요일
+              const daysFromMonday = (dayOfWeek === 0 ? 6 : dayOfWeek - 1); // 월요일 기준으로 계산
+              const currentWeekMonday = new Date(today);
+              currentWeekMonday.setDate(today.getDate() - daysFromMonday);
+              const selectedWeekMonday = new Date(currentWeekMonday);
+              selectedWeekMonday.setDate(currentWeekMonday.getDate() + (selectedWeek * 7));
+              const weekEnd = new Date(selectedWeekMonday);
+              weekEnd.setDate(selectedWeekMonday.getDate() + 6); // 일요일
+              return `${selectedWeekMonday.toLocaleDateString('ko-KR')} ~ ${weekEnd.toLocaleDateString('ko-KR')}`;
             })()}
           </span>
           <button
@@ -181,9 +203,9 @@ const AdminInventoryManagement: React.FC = () => {
                     <th style={{ padding: '10px', border: '1px solid #000' }}>카테고리</th>
                     <th style={{ padding: '10px', border: '1px solid #000' }}>현재 보유량</th>
                     <th style={{ padding: '10px', border: '1px solid #000' }}>주문 재고</th>
-                    <th style={{ padding: '10px', border: '1px solid #000' }}>이번주 예약 수량</th>
+                    <th style={{ padding: '10px', border: '1px solid #000' }}>이 주의 예약 수량</th>
                     <th style={{ padding: '10px', border: '1px solid #000' }}>예비 수량</th>
-                    <th style={{ padding: '10px', border: '1px solid #000' }}>시간대</th>
+                    <th style={{ padding: '10px', border: '1px solid #000' }}>보충 수령 가능일</th>
                     <th style={{ padding: '10px', border: '1px solid #000' }}>보충일</th>
                     <th style={{ padding: '10px', border: '1px solid #000' }}>보충</th>
                   </tr>
@@ -204,25 +226,56 @@ const AdminInventoryManagement: React.FC = () => {
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>{item.category || '-'}</td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>{item.capacity_per_window.toLocaleString()}</td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>{orderedQty.toLocaleString()}</td>
-                        <td style={{ padding: '10px', border: '1px solid #d4af37' }}>{weeklyReserved.toLocaleString()}</td>
+                        <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
+                          {(() => {
+                            // 날짜별 예약 수량이 있으면 날짜별로 표시, 없으면 전체 합계 표시
+                            if (item.reserved_by_date && Object.keys(item.reserved_by_date).length > 0) {
+                              // 날짜별 예약 수량 표시 (예: 12/28 `1/3`)
+                              const dateEntries = Object.entries(item.reserved_by_date)
+                                .filter(([_, count]) => count > 0)
+                                .sort(([dateA], [dateB]) => {
+                                  const [monthA, dayA] = dateA.split('/').map(Number);
+                                  const [monthB, dayB] = dateB.split('/').map(Number);
+                                  if (monthA !== monthB) return monthA - monthB;
+                                  return dayA - dayB;
+                                })
+                                .map(([date, count]) => `${date} \`${count}/${item.capacity_per_window}\``)
+                                .join(', ');
+                              return dateEntries || weeklyReserved.toLocaleString();
+                            }
+                            // 날짜별 데이터가 없으면 전체 합계 표시
+                            return weeklyReserved.toLocaleString();
+                          })()}
+                        </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37', fontWeight: availableQuantity < 5 ? 'bold' : 'normal' }}>
                           {availableQuantity.toLocaleString()}
                         </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
-                          {new Date(item.window_start).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} - {new Date(item.window_end).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                          월요일, 금요일
                         </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>
                           {(() => {
+                            // 선택된 주의 월요일과 금요일 계산
                             const today = new Date();
-                            const dayOfWeek = today.getDay();
-                            if (dayOfWeek === 1) return '월요일';
-                            if (dayOfWeek === 5) return '금요일';
-                            const daysUntilMonday = (1 - dayOfWeek + 7) % 7 || 7;
-                            const daysUntilFriday = (5 - dayOfWeek + 7) % 7 || 7;
-                            const nextRestockDay = Math.min(daysUntilMonday, daysUntilFriday);
-                            if (nextRestockDay === daysUntilMonday && nextRestockDay <= daysUntilFriday) return `다음 월요일 (${nextRestockDay}일 후)`;
-                            if (nextRestockDay === daysUntilFriday) return `다음 금요일 (${nextRestockDay}일 후)`;
-                            return '-';
+                            today.setHours(0, 0, 0, 0);
+                            const dayOfWeek = today.getDay(); // 0=일요일, 1=월요일, ..., 6=토요일
+                            const daysFromMonday = (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
+                            const currentWeekMonday = new Date(today);
+                            currentWeekMonday.setDate(today.getDate() - daysFromMonday);
+                            const selectedWeekMonday = new Date(currentWeekMonday);
+                            selectedWeekMonday.setDate(currentWeekMonday.getDate() + (selectedWeek * 7));
+                            
+                            // 선택된 주의 월요일과 금요일
+                            const weekMonday = new Date(selectedWeekMonday);
+                            const weekFriday = new Date(selectedWeekMonday);
+                            weekFriday.setDate(selectedWeekMonday.getDate() + 4); // 월요일 + 4일 = 금요일
+                            
+                            const mondayMonth = weekMonday.getMonth() + 1;
+                            const mondayDate = weekMonday.getDate();
+                            const fridayMonth = weekFriday.getMonth() + 1;
+                            const fridayDate = weekFriday.getDate();
+                            
+                            return `${mondayMonth}/${mondayDate}, ${fridayMonth}/${fridayDate}`;
                           })()}
                         </td>
                         <td style={{ padding: '10px', border: '1px solid #d4af37' }}>

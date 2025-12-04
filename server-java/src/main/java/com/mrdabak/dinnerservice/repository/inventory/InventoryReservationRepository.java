@@ -51,5 +51,14 @@ public interface InventoryReservationRepository extends JpaRepository<InventoryR
     Integer sumWeeklyReservedByMenuItemId(@Param("menuItemId") Long menuItemId,
                                          @Param("weekStart") LocalDateTime weekStart,
                                          @Param("weekEnd") LocalDateTime weekEnd);
+
+    // 특정 날짜의 예약 수량 계산 (해당 날짜의 미소진 예약만)
+    @Query(value = "SELECT COALESCE(SUM(r.quantity), 0) FROM inventory_reservations r " +
+            "WHERE r.menu_item_id = :menuItemId " +
+            "AND DATE(r.delivery_time) = DATE(:targetDate) " +
+            "AND (r.consumed IS NULL OR r.consumed = 0)", 
+            nativeQuery = true)
+    Integer sumReservedByMenuItemIdAndDate(@Param("menuItemId") Long menuItemId,
+                                          @Param("targetDate") LocalDateTime targetDate);
 }
 

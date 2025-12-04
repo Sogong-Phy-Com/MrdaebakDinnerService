@@ -299,5 +299,45 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("error", "오류가 발생했습니다"));
         }
     }
+
+    @PatchMapping("/me/consent")
+    public ResponseEntity<?> updateConsent(@RequestBody Map<String, Object> request, Authentication authentication) {
+        try {
+            if (authentication == null || authentication.getName() == null) {
+                return ResponseEntity.status(401).body(Map.of("error", "Authentication required"));
+            }
+
+            Long userId = Long.parseLong(authentication.getName());
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            // 개인정보 동의 현황 업데이트
+            if (request.containsKey("consentName")) {
+                user.setConsentName(Boolean.TRUE.equals(request.get("consentName")));
+            }
+            if (request.containsKey("consentAddress")) {
+                user.setConsentAddress(Boolean.TRUE.equals(request.get("consentAddress")));
+            }
+            if (request.containsKey("consentPhone")) {
+                user.setConsentPhone(Boolean.TRUE.equals(request.get("consentPhone")));
+            }
+            if (request.containsKey("loyaltyConsent")) {
+                user.setLoyaltyConsent(Boolean.TRUE.equals(request.get("loyaltyConsent")));
+            }
+
+            userRepository.save(user);
+
+            Map<String, Object> response = new java.util.HashMap<>();
+            response.put("message", "개인정보 동의 현황이 업데이트되었습니다.");
+            response.put("consentName", Boolean.TRUE.equals(user.getConsentName()));
+            response.put("consentAddress", Boolean.TRUE.equals(user.getConsentAddress()));
+            response.put("consentPhone", Boolean.TRUE.equals(user.getConsentPhone()));
+            response.put("loyaltyConsent", Boolean.TRUE.equals(user.getLoyaltyConsent()));
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
 }
 

@@ -246,12 +246,17 @@ public class InventoryService {
                 Long menuItemId = entry.getKey();
                 Integer quantityToDeduct = entry.getValue();
                 
-                // 조리 시작 전 상태 확인 (오늘부터 7일 후까지)
-                LocalDateTime now = LocalDateTime.now();
-                LocalDateTime weekStartDateTime = now; // 오늘부터
-                LocalDateTime weekEndDateTime = now.plusDays(7); // 7일 후까지
-                Integer weeklyReservedBefore = inventoryReservationRepository
-                    .sumWeeklyReservedByMenuItemId(menuItemId, weekStartDateTime, weekEndDateTime);
+            // 조리 시작 전 상태 확인 (이번 주 - 월요일 ~ 일요일)
+            LocalDateTime now = LocalDateTime.now();
+            LocalDate today = now.toLocalDate();
+            DayOfWeek dayOfWeek = today.getDayOfWeek();
+            int daysFromMonday = (dayOfWeek.getValue() - 1) % 7;
+            LocalDate weekStart = today.minusDays(daysFromMonday);
+            LocalDate weekEnd = weekStart.plusWeeks(1);
+            LocalDateTime weekStartDateTime = LocalDateTime.of(weekStart, LocalTime.MIN);
+            LocalDateTime weekEndDateTime = LocalDateTime.of(weekEnd, LocalTime.MIN);
+            Integer weeklyReservedBefore = inventoryReservationRepository
+                .sumWeeklyReservedByMenuItemId(menuItemId, weekStartDateTime, weekEndDateTime);
                 
                 MenuInventory inventory = getInventory(menuItemId);
                 int currentCapacity = inventory.getCapacityPerWindow() != null ? inventory.getCapacityPerWindow() : 0;
@@ -270,10 +275,15 @@ public class InventoryService {
             
             // 모든 예약을 업데이트한 후 이번주 예약 수량 확인
             if (count > 0) {
-                // 오늘부터 7일 후까지
+                // 이번 주 (월요일 ~ 일요일)
                 LocalDateTime now = LocalDateTime.now();
-                LocalDateTime weekStartDateTime = now; // 오늘부터
-                LocalDateTime weekEndDateTime = now.plusDays(7); // 7일 후까지
+                LocalDate today = now.toLocalDate();
+                DayOfWeek dayOfWeek = today.getDayOfWeek();
+                int daysFromMonday = (dayOfWeek.getValue() - 1) % 7;
+                LocalDate weekStart = today.minusDays(daysFromMonday);
+                LocalDate weekEnd = weekStart.plusWeeks(1);
+                LocalDateTime weekStartDateTime = LocalDateTime.of(weekStart, LocalTime.MIN);
+                LocalDateTime weekEndDateTime = LocalDateTime.of(weekEnd, LocalTime.MIN);
                 
                 System.out.println("[InventoryService] ========== 조리 시작 후 최종 상태 ==========");
                 for (Map.Entry<Long, Integer> entry : menuItemQuantities.entrySet()) {
@@ -304,6 +314,15 @@ public class InventoryService {
 
     @Transactional(value = "inventoryTransactionManager")
     public List<InventorySnapshot> getInventorySnapshots() {
+        LocalDate today = LocalDate.now();
+        DayOfWeek dayOfWeek = today.getDayOfWeek();
+        int daysFromMonday = (dayOfWeek.getValue() - 1) % 7;
+        LocalDate weekStart = today.minusDays(daysFromMonday);
+        return getInventorySnapshots(weekStart);
+    }
+
+    @Transactional(value = "inventoryTransactionManager")
+    public List<InventorySnapshot> getInventorySnapshots(LocalDate weekStartDate) {
         LocalDateTime now = LocalDateTime.now();
         RestockWindow currentWindow = resolveWindow(now);
 
@@ -329,9 +348,11 @@ public class InventoryService {
         }
 
         // Now get all inventories (including newly created ones)
-        // Calculate weekly reserved (오늘부터 7일 후까지의 예약 - consumed=false만)
-        LocalDateTime weekStartDateTime = now; // 오늘부터
-        LocalDateTime weekEndDateTime = now.plusDays(7); // 7일 후까지
+        // Calculate weekly reserved (선택된 주의 예약만 - 월요일 00:00 ~ 다음 주 월요일 00:00)
+        LocalDate weekStart = weekStartDate; // 선택된 주의 월요일
+        LocalDate weekEnd = weekStart.plusWeeks(1); // 다음 주 월요일
+        LocalDateTime weekStartDateTime = LocalDateTime.of(weekStart, LocalTime.MIN); // 선택된 주 월요일 00:00
+        LocalDateTime weekEndDateTime = LocalDateTime.of(weekEnd, LocalTime.MIN); // 다음 주 월요일 00:00
         
         return menuInventoryRepository.findAll().stream().map(inventory -> {
             // 현재 날짜의 예약 수량
@@ -341,12 +362,15 @@ public class InventoryService {
                 reserved = 0;
             }
             
-            // 이번주 예약 수량 (이번 주의 모든 예약 합산)
+            // 선택된 주의 예약 수량 (선택된 주의 모든 예약 합산)
             Integer weeklyReserved = inventoryReservationRepository
                     .sumWeeklyReservedByMenuItemId(inventory.getMenuItemId(), weekStartDateTime, weekEndDateTime);
             if (weeklyReserved == null) {
                 weeklyReserved = 0;
             }
+            // 디버깅: 계산된 예약 수량 출력
+            System.out.println("[InventoryService] 메뉴 아이템 " + inventory.getMenuItemId() + 
+                    " - 선택된 주(" + weekStartDateTime + " ~ " + weekEndDateTime + ") 예약 수량: " + weeklyReserved);
             
             return new InventorySnapshot(
                     inventory,
@@ -587,6 +611,10 @@ public class InventoryService {
                                            LocalDateTime deliveryTime) { }
 
     public record RestockWindow(LocalDateTime start, LocalDateTime end) { }
+
+    public Integer getReservedByDate(Long menuItemId, LocalDateTime targetDate) {
+        return inventoryReservationRepository.sumReservedByMenuItemIdAndDate(menuItemId, targetDate);
+    }
 
     public record InventorySnapshot(MenuInventory inventory,
                                     int reserved,

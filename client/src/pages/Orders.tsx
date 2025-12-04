@@ -190,32 +190,49 @@ const Orders: React.FC = () => {
   };
 
   const getChangeWindowInfo = (order: Order) => {
-    const today = startOfDay(new Date());
-    const deliveryDate = new Date(order.delivery_time);
-    const reservationDate = startOfDay(deliveryDate);
-    const feeWindowStart = new Date(reservationDate);
-    feeWindowStart.setDate(reservationDate.getDate() - 3);
-    const lockWindow = new Date(reservationDate);
-    lockWindow.setDate(reservationDate.getDate() - 1);
+    const now = new Date();
+    const deliveryDateTime = new Date(order.delivery_time);
+    const hoursUntilDelivery = (deliveryDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+    
+    // 날짜 비교 (당일 여부 확인)
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const deliveryDate = new Date(deliveryDateTime.getFullYear(), deliveryDateTime.getMonth(), deliveryDateTime.getDate());
+    const isSameDay = today.getTime() === deliveryDate.getTime();
 
-    if (today >= lockWindow) {
-      return { allowed: false, fee: 0, message: '배달 1일 전 이후에는 변경할 수 없습니다.' };
+    // 배달 3시간 전 이후에는 변경 불가
+    if (hoursUntilDelivery < 3) {
+      return { allowed: false, fee: 0, message: '배달 시간 3시간 전 이후에는 변경할 수 없습니다.' };
     }
-    if (today >= feeWindowStart) {
-      return { allowed: true, fee: 30000, message: '배달 3~1일 전에는 변경 수수료 30,000원이 부과됩니다.' };
+
+    // 당일 예약 변경 시 만원 추가금 부과
+    if (isSameDay) {
+      return { allowed: true, fee: 10000, message: '당일 예약 변경으로 인해 추가금 10,000원이 부과됩니다.' };
     }
-    return { allowed: true, fee: 0, message: '변경 수수료 없이 수정할 수 있습니다.' };
+
+    // 전날까지는 무료 수정 가능
+    return { allowed: true, fee: 0, message: '전날까지는 재고 내에서 무료로 수정할 수 있습니다.' };
   };
 
   const canModify = (order: Order) => {
     const approvalStatus = order.admin_approval_status ? order.admin_approval_status.toUpperCase() : '';
-    if (approvalStatus !== 'APPROVED') {
+    
+    // PENDING 또는 APPROVED 상태의 주문만 수정 가능
+    if (approvalStatus !== 'APPROVED' && approvalStatus !== 'PENDING') {
       return false;
     }
+    
+    // 취소되거나 배달 완료된 주문은 수정 불가
     if (order.status === 'cancelled' || order.status === 'delivered') {
       return false;
     }
-    return getChangeWindowInfo(order).allowed;
+    
+    // APPROVED 상태의 주문은 기존 제약(배달 1일 전까지) 확인
+    if (approvalStatus === 'APPROVED') {
+      return getChangeWindowInfo(order).allowed;
+    }
+    
+    // PENDING 상태의 주문은 항상 수정 가능 (아직 승인 전이므로)
+    return true;
   };
 
   const canCancel = (order: Order) =>
@@ -312,8 +329,8 @@ const Orders: React.FC = () => {
     }
     const fee = windowInfo.fee;
     const message = fee > 0
-      ? `이번 변경에는 수수료 ${fee.toLocaleString()}원이 부과됩니다.\n관리자 승인 시 결제됩니다.\n\n변경 요청을 진행하시겠습니까?`
-      : '수수료 없이 예약 변경을 진행할 수 있습니다.\n관리자 승인 시 최종 확정됩니다.\n\n변경 요청을 진행하시겠습니까?';
+      ? `${windowInfo.message}\n\n이번 변경에는 추가금 ${fee.toLocaleString()}원이 부과됩니다.\n관리자 승인 시 결제됩니다.\n\n변경 요청을 진행하시겠습니까?`
+      : `${windowInfo.message}\n\n관리자 승인 시 최종 확정됩니다.\n\n변경 요청을 진행하시겠습니까?`;
     if (!window.confirm(message)) {
       return;
     }
@@ -477,26 +494,31 @@ const Orders: React.FC = () => {
                     >
                       변경 요청 현황
                     </button>
-                    {canModify(order) && (
+                    {/* 주문 수정 버튼 - PENDING 또는 APPROVED 상태의 주문에 표시 */}
+                    {(order.admin_approval_status === 'PENDING' || order.admin_approval_status === 'APPROVED') && 
+                     order.status !== 'cancelled' && 
+                     order.status !== 'delivered' && (
                       <button
                         className="btn btn-primary"
-                        style={{ flex: 1, minWidth: '140px', fontWeight: 'bold' }}
+                        style={{ 
+                          flex: 1, 
+                          minWidth: '140px', 
+                          fontWeight: 'bold',
+                          opacity: canModify(order) ? 1 : 0.6
+                        }}
+                        disabled={!canModify(order)}
+                        title={canModify(order) ? '주문을 수정할 수 있습니다' : (order.admin_approval_status === 'APPROVED' ? '배달 1일 전 이후에는 변경할 수 없습니다' : '주문 수정이 불가능합니다')}
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleModifyOrder(order);
+                          if (canModify(order)) {
+                            handleModifyOrder(order);
+                          } else {
+                            const windowInfo = getChangeWindowInfo(order);
+                            alert(windowInfo.message || '주문 수정이 불가능합니다.');
+                          }
                         }}
                       >
                         ✏️ 주문 수정하기
-                      </button>
-                    )}
-                    {!canModify(order) && order.admin_approval_status === 'APPROVED' && order.status !== 'cancelled' && order.status !== 'delivered' && (
-                      <button
-                        className="btn btn-secondary"
-                        style={{ flex: 1, minWidth: '140px', opacity: 0.6 }}
-                        disabled
-                        title="배달 1일 전 이후에는 변경할 수 없습니다"
-                      >
-                        변경 불가 (기한 경과)
                       </button>
                     )}
                   </div>
