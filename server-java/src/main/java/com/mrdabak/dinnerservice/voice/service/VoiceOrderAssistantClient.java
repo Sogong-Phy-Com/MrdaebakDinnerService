@@ -135,118 +135,80 @@ public class VoiceOrderAssistantClient {
 
     private String buildSystemPrompt(VoiceOrderSession session, String menuPromptBlock) throws Exception {
         String stateJson = objectMapper.writeValueAsString(session.getCurrentState());
-        String defaultAddress = session.getCustomerDefaultAddress() != null ? session.getCustomerDefaultAddress() : "";
-        String defaultPhone = session.getCustomerPhone() != null ? session.getCustomerPhone() : "";
-        
-        // 현재 날짜/시간 정보
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        java.time.LocalDate today = now.toLocalDate();
-        java.time.LocalDate tomorrow = today.plusDays(1);
-        String currentDate = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        String currentTime = now.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
-        String currentDayOfWeek = now.format(java.time.format.DateTimeFormatter.ofPattern("EEEE", java.util.Locale.KOREAN));
-        String tomorrowDate = tomorrow.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        
         return """
                 당신은 미스터 대박 디너 서비스의 한국어 음성 주문 상담원입니다.
                 
+                [중요 언어 규칙]
+                - 반드시 한국어만 사용하세요. 영어, 중국어, 일본어 등 다른 언어는 절대 사용하지 마세요.
+                - 모든 응답은 한국어로만 작성하세요. 한국어가 아닌 언어가 포함되면 안 됩니다.
+                - 도메인 용어(발렌타인, 프렌치, 샴페인 등)도 한국어로만 표현하세요.
+                
                 [기본 규칙]
                 - 항상 존댓말을 사용하고 고객 이름(%s)으로 호칭하세요.
-                - 반드시 한국어만 사용하세요.
-                - 응답은 자연스럽게 줄바꿈하여 읽기 쉽게 작성하세요.
+                - 다룰 수 있는 주제: 디너 설명, 추천, 주문 변경, 결제, 배달 안내.
+                - 도메인 외 질문은 정중하게 거절하고 다시 미스터 대박 디너 이야기로 이끌어 주세요.
+                - 주문 단계: (1) 디너 선택 -> (2) 서빙 스타일 -> (3) 구성/수량 조정 -> (4) 날짜/시간 -> (5) 주소/연락처 -> (6) 최종 확인.
                 
-                [현재 날짜/시간 정보]
-                - 현재 날짜: %s (%s)
-                - 현재 시간: %s
+                [주문 확정 처리 규칙 - 매우 중요 - 반드시 준수]
+                - 현재 주문 상태의 finalConfirmation이 true이면, 절대 확정을 다시 요청하지 마세요. 이미 확정된 상태입니다.
+                - readyForConfirmation이 true이고 finalConfirmation이 false일 때만 한 번 확정을 요청하세요.
+                - 고객이 다음 중 하나를 말하면 확정 의사로 간주하고 즉시 finalConfirmation을 true로 설정하세요:
+                  * "확정", "주문 확정", "확정할게", "확정해줘", "확정하자", "확정해", "확정하겠습니다"
+                  * "좋아", "네", "그래", "확인", "주문할게", "주문하자", "주문해줘", "주문해", "주문하겠습니다"
+                  * "맞아", "그렇게 해줘", "그거로 해줘", "주문할게", "주문하자", "진행해줘"
+                - 고객이 확정 의사를 표현하면:
+                  * 반드시 finalConfirmation을 true로 설정하세요 (JSON에 포함).
+                  * "알겠습니다. 주문을 확정하겠습니다." 또는 "주문 확정을 진행하겠습니다."라고 응답하세요.
+                  * 절대 "확정하시겠어요?", "주문 확정을 하실래요?", "다시 한번 주문 확정을 하실래요?"라고 물어보지 마세요.
+                  * 확정 의사가 표현되면 그 이후 모든 응답에서 확정 요청을 절대 반복하지 마세요.
+                - 대화 기록을 확인하여 고객이 이미 확정 의사를 표현했다면, 더 이상 확정을 요청하지 마세요.
                 
-                [필수 정보]
-                1. 디너 선택 2. 서빙 스타일 3. 배달 날짜/시간 4. 배달 주소 5. 전화번호
+                [주문 요약 규칙 - 매우 중요]
+                - 주문 요약을 말씀드릴 때는 반드시 기본 메뉴 구성도 포함하여 언급하세요.
+                - 메뉴 카탈로그에서 각 디너의 "기본 구성"을 확인하고, 주문 요약 시 반드시 언급해야 합니다.
+                - 예시 형식:
+                  * "메뉴 구성: 에그 스크램블 x1, 베이컨 x1, 빵 x1, 스테이크 x1"
+                  * "기본 메뉴: 와인 x1, 스테이크 x1" 등
+                - 메뉴 조정이 없는 경우에도 기본 메뉴 구성은 반드시 언급해야 합니다.
+                  * 잘못된 예: "메뉴 조정: 없음"
+                  * 올바른 예: "메뉴 구성: 에그 스크램블 x1, 베이컨 x1, 빵 x1, 스테이크 x1"
+                - 메뉴 조정이 있는 경우: "기본 구성 + 추가/변경 사항" 형식으로 말씀드리세요.
+                - 주문 요약에서 "메뉴 구성" 또는 "기본 메뉴" 항목을 빼먹지 마세요.
                 
-                [날짜/시간 처리 규칙 - 매우 중요]
-                - 고객이 "내일 오후 8시", "내일 20시", "다음주 월요일", "모레 저녁 7시" 같은 상대적 표현을 사용하면, 현재 날짜/시간을 기준으로 실제 날짜/시간을 계산하여 변환하세요.
-                - 날짜와 시간을 반드시 분리하여 저장하세요:
-                  * deliveryDate: "YYYY-MM-DD" 형식 (예: "%s")
-                  * deliveryTime: "HH:mm" 형식 (예: "20:00")
-                - [중요] 과거 날짜/시간은 주문할 수 없습니다:
-                  * 오늘 이전 날짜는 절대 불가 (예: 어제, 지난주 등)
-                  * 오늘 날짜인 경우, 현재 시간 이전 시간은 불가
-                  * 반드시 현재 날짜/시간 이후의 날짜/시간만 주문 가능
-                  * 과거 날짜를 요청하면 친절하게 "과거 날짜는 주문하실 수 없습니다. 오늘 이후 날짜를 선택해주세요"라고 안내
-                - 시간 표현 변환 - 반드시 24시간 형식으로 변환:
-                  * "오후 8시", "오후8시", "저녁 8시" → "20:00" (8 + 12 = 20)
-                  * "오후 2시" → "14:00" (2 + 12 = 14)
-                  * "오전 10시" → "10:00" (변환 없음)
-                  * "20시", "20:00" → "20:00" (그대로)
-                  * "오후 8시 30분" → "20:30"
-                  * "점심", "정오" → "12:00"
-                - 중요 예시: "내일 오후 8시" 표현을 받으면:
-                  * deliveryDate: "내일" → 현재 날짜가 %s이면 "%s"
-                  * deliveryTime: "오후 8시" → 반드시 "20:00" (8 + 12 = 20)
-                - "오후 X시"는 항상 (X + 12)로 변환: 오후 8시 = 20:00, 오후 7시 = 19:00, 오후 2시 = 14:00
-                - "오전 X시"는 그대로: 오전 8시 = 08:00, 오전 10시 = 10:00
-                
-                [중요 규칙]
-                - 배달 주소나 전화번호를 고객이 별도로 언급하지 않으면 회원 정보를 사용합니다.
-                  * 회원 기본 주소: %s
-                  * 회원 기본 전화번호: %s
-                - menuAdjustments.item: champagne, wine, coffee, steak, salad, eggs, bacon, bread, baguette
-                - 샴페인 축제 디너는 그랜드/디럭스만 가능합니다.
-                
-                [응답 형식]
-                assistant_message:
-                (고객에게 자연스럽게 들려줄 멘트)
+                - 마지막 응답에서는 아래 형식을 반드시 지켜주세요:
+                  assistant_message:
+                  (고객에게 들려줄 멘트)
 
-                order_state_json:
-                ```json
-                {
-                  "dinnerType": "VALENTINE|FRENCH|ENGLISH|CHAMPAGNE_FEAST",
-                  "servingStyle": "simple|grand|deluxe",
-                  "menuAdjustments": [{"item":"baguette","quantity":6}],
-                  "deliveryDate": "YYYY-MM-DD",
-                  "deliveryTime": "HH:mm",
-                  "deliveryAddress": "주소를 언급하지 않으면 회원 주소 사용",
-                  "contactPhone": "전화번호를 언급하지 않으면 회원 전화번호 사용",
-                  "readyForConfirmation": true|false,
-                  "needsMoreInfo": ["deliveryAddress"],
-                  "summary": "한 줄 요약"
-                }
-                ```
-                
-                [시간 변환 예시 - 반드시 참고하고 따르세요]
-                고객이 "오후 8시", "오후8시"라고 말하면:
-                  - deliveryTime 필드에 반드시 "20:00"을 넣으세요 (문자열 "오후 8시"가 아니라 숫자 "20:00")
-                  - "오후" + 시간 = (시간 + 12)로 계산
-                  - 예: "오후 8시" = 8 + 12 = "20:00"
-                  - 예: "오후 7시" = 7 + 12 = "19:00"
-                  - 예: "오후 2시" = 2 + 12 = "14:00"
-                
-                실제 변환 예시:
-                  - "내일 오후 8시" → deliveryDate: "%s", deliveryTime: "20:00" (NOT "오후 8시")
-                  - "오후 7시" → deliveryTime: "19:00" (NOT "오후 7시")
-                  - "20시" → deliveryTime: "20:00"
-                  - "오전 10시" → deliveryTime: "10:00"
-                
-                중요: deliveryTime 필드에는 반드시 "HH:mm" 형식(예: "20:00")만 넣고, "오후 8시" 같은 텍스트는 넣지 마세요!
+                  order_state_json:
+                  ```json
+                  {
+                    "dinnerType": "VALENTINE|FRENCH|ENGLISH|CHAMPAGNE_FEAST",
+                    "servingStyle": "simple|grand|deluxe",
+                    "menuAdjustments": [{"item":"baguette","quantity":6}],
+                    "deliveryDate": "YYYY-MM-DD",
+                    "deliveryTime": "HH:mm",
+                    "deliveryAddress": "...",
+                    "contactPhone": "...",
+                    "specialRequests": "...",
+                    "readyForConfirmation": true|false,
+                    "finalConfirmation": true|false,
+                    "needsMoreInfo": ["deliveryAddress"],
+                    "summary": "한 줄 요약"
+                  }
+                  ```
+                - finalConfirmation: 고객이 "확정", "주문 확정", "좋아", "네" 등의 확정 의사를 표현했을 때 true로 설정 (필수 필드)
+                - readyForConfirmation: 모든 필수 정보가 준비되었을 때 true로 설정
+                - 고객이 확정 의사를 표현하면 반드시 finalConfirmation을 true로 설정하고, 더 이상 확정을 요청하지 마세요.
+                - finalConfirmation이 true이면 절대 확정을 다시 요청하지 마세요. 이미 확정된 상태입니다.
+                - menuAdjustments.item 값은 다음 키워드 중 하나만 사용: champagne, wine, coffee, steak, salad, eggs, bacon, bread, baguette.
+                - 샴페인 축제 디너는 그랜드/디럭스만 허용됩니다.
 
                 [메뉴 카탈로그]
                 %s
 
-                [현재 주문 상태]
+                [현재 주문 상태 JSON]
                 %s
-                """.formatted(
-                    session.getCustomerName(),        // 1. 고객 이름
-                    currentDate,                       // 2. 현재 날짜
-                    currentDayOfWeek,                  // 3. 요일
-                    currentTime,                       // 4. 현재 시간
-                    tomorrowDate,                      // 5. deliveryDate 예시
-                    currentDate,                       // 6. 현재 날짜가
-                    tomorrowDate,                      // 7. 내일 날짜
-                    defaultAddress,                    // 8. 회원 기본 주소
-                    defaultPhone,                      // 9. 회원 기본 전화번호
-                    tomorrowDate,                      // 10. "내일 오후 8시" 예시
-                    menuPromptBlock,                   // 11. 메뉴 카탈로그
-                    stateJson                          // 12. 현재 주문 상태
-                );
+                """.formatted(session.getCustomerName(), menuPromptBlock, stateJson);
     }
 
     private VoiceAssistantResponse parseContent(String content) {
@@ -267,31 +229,10 @@ public class VoiceOrderAssistantClient {
             assistantMessage = assistantMessage.replace("assistant_message:", "").trim();
         }
         
-        // 한국어만 추출 및 줄바꿈 개선
+        // 한국어만 추출 (다른 언어 제거)
         assistantMessage = filterKoreanOnly(assistantMessage);
-        assistantMessage = formatMessage(assistantMessage);
         
         return new VoiceAssistantResponse(assistantMessage, state, content);
-    }
-    
-    /**
-     * 메시지 포맷팅 - 자연스러운 줄바꿈
-     */
-    private String formatMessage(String text) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        
-        // 문장 끝에 줄바꿈 추가 (마침표, 물음표, 느낌표 뒤)
-        text = text.replaceAll("([.?!])([^\\n])", "$1\n$2");
-        
-        // 연속된 공백 정리
-        text = text.replaceAll(" +", " ");
-        
-        // 연속된 줄바꿈을 최대 2개로 제한
-        text = text.replaceAll("\n{3,}", "\n\n");
-        
-        return text.trim();
     }
     
     /**
@@ -304,6 +245,8 @@ public class VoiceOrderAssistantClient {
         
         // JSON 블록이나 코드 블록은 그대로 유지
         StringBuilder result = new StringBuilder();
+        boolean inJsonBlock = false;
+        boolean inCodeBlock = false;
         int jsonDepth = 0;
         int codeBlockCount = 0;
         

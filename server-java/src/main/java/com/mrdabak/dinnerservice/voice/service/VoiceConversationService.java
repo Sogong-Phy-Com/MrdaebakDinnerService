@@ -71,19 +71,64 @@ public class VoiceConversationService {
         
         return input.trim();
     }
+    
+    /**
+     * 주문 확정 의사 표현 감지 및 설정
+     */
+    private void detectAndSetConfirmationIntent(VoiceOrderState state, String userText) {
+        if (userText == null || userText.isBlank() || state == null) {
+            return;
+        }
+        
+        String lowerText = userText.toLowerCase().trim();
+        
+        // 주문 확정 의사 표현 패턴 (더 포괄적으로)
+        java.util.regex.Pattern confirmationPattern = java.util.regex.Pattern.compile(
+            "(확정|주문\\s*확정|확정할게|확정해줘|확정하자|확정해|확정하겠|확정합니다|" +
+            "좋아|네|그래|확인|주문할게|주문하자|주문해줘|주문해|주문하겠|주문합니다|" +
+            "맞아|그렇게\\s*해줘|그거로\\s*해줘|주문\\s*할게|주문\\s*하자|" +
+            "그대로|그걸로|주문\\s*확인|진행|해줘|할게|하겠)",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        
+        // readyForConfirmation이 true이거나 모든 필수 정보가 준비되었으면 확정 의사를 받아들임
+        boolean isReady = Boolean.TRUE.equals(state.getReadyForConfirmation()) || state.isReadyForCheckout();
+        if (confirmationPattern.matcher(lowerText).find() && isReady) {
+            // 주문 확정 의사 표현이 감지되고 확정 준비가 된 경우
+            state.setFinalConfirmation(true);
+            // 확정 의사가 표현되면 readyForConfirmation도 true로 유지
+            state.setReadyForConfirmation(true);
+        }
+    }
 
     private VoiceConversationResult sendToAssistant(VoiceOrderSession session, String userText, boolean visible) {
         VoiceConversationMessage userMessage = VoiceConversationMessage.of("user", userText, visible);
         session.addMessage(userMessage, sessionService.historyLimit());
 
+        // 확정 의사 표현을 먼저 감지 (LLM 응답 전에)
+        if (session.getCurrentState() == null) {
+            session.setCurrentState(new VoiceOrderState());
+        }
+        boolean hadFinalConfirmation = Boolean.TRUE.equals(session.getCurrentState().getFinalConfirmation());
+        detectAndSetConfirmationIntent(session.getCurrentState(), userText);
+
         VoiceAssistantResponse response = assistantClient.generateResponse(session, menuCatalogService.buildPromptBlock());
         VoiceConversationMessage agentMessage = VoiceConversationMessage.of("assistant", response.assistantMessage(), true);
         session.addMessage(agentMessage, sessionService.historyLimit());
 
-        if (session.getCurrentState() == null) {
-            session.setCurrentState(new VoiceOrderState());
-        }
         stateMerger.merge(session.getCurrentState(), response.orderState());
+        
+        // 확정 의사 표현이 감지되었거나 이전에 이미 확정되었으면 유지
+        if (hadFinalConfirmation || Boolean.TRUE.equals(session.getCurrentState().getFinalConfirmation())) {
+            session.getCurrentState().setFinalConfirmation(true);
+            // 확정 의사가 있으면 readyForConfirmation도 true로 유지
+            if (session.getCurrentState().isReadyForCheckout()) {
+                session.getCurrentState().setReadyForConfirmation(true);
+            }
+        }
+        
+        // 주문 확정 의사 표현 다시 확인 (LLM이 덮어쓴 경우 대비)
+        detectAndSetConfirmationIntent(session.getCurrentState(), userText);
         
         // 배달 주소나 전화번호가 없으면 회원 정보 사용
         VoiceOrderState state = session.getCurrentState();
