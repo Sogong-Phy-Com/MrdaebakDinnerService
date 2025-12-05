@@ -11,6 +11,7 @@ import com.mrdabak.dinnerservice.model.DinnerType;
 import com.mrdabak.dinnerservice.repository.MenuItemRepository;
 import com.mrdabak.dinnerservice.repository.UserRepository;
 import com.mrdabak.dinnerservice.repository.DinnerTypeRepository;
+import com.mrdabak.dinnerservice.repository.DinnerMenuItemRepository;
 import com.mrdabak.dinnerservice.repository.order.OrderItemRepository;
 import com.mrdabak.dinnerservice.repository.order.OrderRepository;
 import com.mrdabak.dinnerservice.service.OrderChangeRequestService;
@@ -43,6 +44,7 @@ public class OrderController {
     private final OrderChangeRequestService orderChangeRequestService;
     private final UserRepository userRepository;
     private final DinnerTypeRepository dinnerTypeRepository;
+    private final DinnerMenuItemRepository dinnerMenuItemRepository;
     private final OrderRepository orderRepository;
 
     public OrderController(OrderService orderService, OrderItemRepository orderItemRepository,
@@ -50,6 +52,7 @@ public class OrderController {
                           OrderChangeRequestService orderChangeRequestService,
                           UserRepository userRepository,
                           DinnerTypeRepository dinnerTypeRepository,
+                          DinnerMenuItemRepository dinnerMenuItemRepository,
                           OrderRepository orderRepository) {
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
@@ -57,6 +60,7 @@ public class OrderController {
         this.orderChangeRequestService = orderChangeRequestService;
         this.userRepository = userRepository;
         this.dinnerTypeRepository = dinnerTypeRepository;
+        this.dinnerMenuItemRepository = dinnerMenuItemRepository;
         this.orderRepository = orderRepository;
     }
 
@@ -355,7 +359,15 @@ public class OrderController {
             long deliveredOrders = previousOrders.stream()
                     .filter(o -> "delivered".equalsIgnoreCase(o.getStatus()))
                     .count();
-            boolean loyaltyEligible = user != null && Boolean.TRUE.equals(user.getLoyaltyConsent()) && deliveredOrders >= 4;
+            // 모든 개인정보 동의(consentName, consentAddress, consentPhone)가 true여야 할인 적용
+            boolean allConsentsGiven = user != null 
+                    && Boolean.TRUE.equals(user.getConsentName()) 
+                    && Boolean.TRUE.equals(user.getConsentAddress()) 
+                    && Boolean.TRUE.equals(user.getConsentPhone());
+            boolean loyaltyEligible = user != null 
+                    && Boolean.TRUE.equals(user.getLoyaltyConsent()) 
+                    && allConsentsGiven 
+                    && deliveredOrders >= 4;
             
             // 원래 가격 계산 (할인 전)
             DinnerType dinner = dinnerTypeRepository.findById(request.getDinnerTypeId()).orElse(null);
@@ -367,14 +379,31 @@ public class OrderController {
                         "deluxe", 1.6
                 );
                 double basePrice = dinner.getBasePrice() * styleMultipliers.getOrDefault(request.getServingStyle(), 1.0);
-                double itemsPrice = 0;
+                
+                // 기본 제공 메뉴 항목 정보 가져오기
+                List<com.mrdabak.dinnerservice.model.DinnerMenuItem> defaultMenuItems = 
+                        dinnerMenuItemRepository.findByDinnerTypeId(dinner.getId());
+                
+                // 기본 제공 항목의 기본 수량을 Map으로 저장
+                Map<Long, Integer> defaultQuantities = new java.util.HashMap<>();
+                for (com.mrdabak.dinnerservice.model.DinnerMenuItem dmi : defaultMenuItems) {
+                    defaultQuantities.put(dmi.getMenuItemId(), dmi.getQuantity());
+                }
+                
+                // 추가 수량만 계산 (기본 제공 항목의 기본 수량은 제외)
+                double additionalItemsPrice = 0;
                 for (com.mrdabak.dinnerservice.dto.OrderItemDto item : request.getItems()) {
                     MenuItem menuItem = menuItemRepository.findById(item.getMenuItemId()).orElse(null);
                     if (menuItem != null) {
-                        itemsPrice += menuItem.getPrice() * item.getQuantity();
+                        // 기본 제공 수량 확인
+                        int defaultQuantity = defaultQuantities.getOrDefault(item.getMenuItemId(), 0);
+                        // 추가 수량만 계산 (현재 수량 - 기본 제공 수량)
+                        int additionalQuantity = Math.max(0, item.getQuantity() - defaultQuantity);
+                        additionalItemsPrice += menuItem.getPrice() * additionalQuantity;
                     }
                 }
-                originalPrice = basePrice + itemsPrice;
+                
+                originalPrice = basePrice + additionalItemsPrice;
             }
             
             Map<String, Object> responseBody = new HashMap<>();

@@ -44,18 +44,6 @@ interface PreviousOrder {
   items: { menu_item_id: number; quantity: number; name?: string }[];
 }
 
-interface ReservationChangeRequestSummary {
-  id: number;
-  status: string;
-  new_total_amount: number;
-  extra_charge_amount: number;
-  expected_refund_amount: number;
-  change_fee_amount: number;
-  change_fee_applied: boolean;
-  requires_additional_payment: boolean;
-  requires_refund: boolean;
-}
-
 const Order: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -64,7 +52,6 @@ const Order: React.FC = () => {
   const modifyOrderId = searchParams.get('modify');
   const editRequestId = searchParams.get('editRequest');
   const [isModifying, setIsModifying] = useState(false);
-  const [isEditingChangeRequest, setIsEditingChangeRequest] = useState(false);
   const [dinners, setDinners] = useState<Dinner[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [servingStyles, setServingStyles] = useState<ServingStyle[]>([]);
@@ -109,6 +96,7 @@ const Order: React.FC = () => {
     }
     fetchUserCardInfo();
     fetchPreviousOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modifyOrderId, editRequestId]);
 
 useEffect(() => {
@@ -138,7 +126,14 @@ useEffect(() => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (Array.isArray(response.data)) {
-        setPreviousOrders(response.data.slice(0, 5));
+        // 모든 주문을 가져와서 배달 완료 주문을 정확히 카운트
+        setPreviousOrders(response.data);
+        console.log('전체 주문 수:', response.data.length);
+        console.log('주문 상태 분포:', response.data.reduce((acc: any, order: any) => {
+          const status = order.status?.toLowerCase() || 'unknown';
+          acc[status] = (acc[status] || 0) + 1;
+          return acc;
+        }, {}));
       }
     } catch (err) {
       console.error('이전 주문 조회 실패:', err);
@@ -242,6 +237,7 @@ useEffect(() => {
       setAvailableTimeSlots([]);
       setSelectedTime('');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDateValid, selectedYear, selectedMonth, selectedDay]);
 
   // Update deliveryTime when date and time are selected
@@ -380,7 +376,6 @@ useEffect(() => {
       }
 
       setIsModifying(true);
-      setIsEditingChangeRequest(false);
       setSelectedDinner(order.dinner_type_id);
       setSelectedStyle(order.serving_style);
       
@@ -455,7 +450,6 @@ useEffect(() => {
       }
 
       setIsModifying(true);
-      setIsEditingChangeRequest(true);
       
       // 변경 요청의 새 값으로 폼 채우기
       setSelectedDinner(changeRequest.new_dinner_type_id);
@@ -550,7 +544,59 @@ useEffect(() => {
     const additionalItemsPrice = Math.max(0, currentItemsPrice - defaultItemsPrice);
     
     // 기본 가격 + 추가 항목 가격 (기본 가격은 항상 유지)
-    const subtotal = basePrice + additionalItemsPrice;
+    let subtotal = basePrice + additionalItemsPrice;
+    
+    // 할인 적용 여부 확인
+    if (user) {
+      const allConsentsGiven = Boolean(user.consentName) && Boolean(user.consentAddress) && Boolean(user.consentPhone);
+      const deliveredOrders = previousOrders.filter(order => {
+        const status = order.status?.toLowerCase() || '';
+        const isDelivered = status === 'delivered';
+        return isDelivered;
+      }).length;
+      const loyaltyEligible = Boolean(user.loyaltyConsent) && allConsentsGiven && deliveredOrders >= 4;
+      
+      // 디버깅: previousOrders의 status 값 확인
+      console.log('previousOrders 전체:', previousOrders.length);
+      console.log('previousOrders status 상세:', previousOrders.map(o => ({ 
+        id: o.id, 
+        status: o.status, 
+        statusLower: o.status?.toLowerCase(),
+        isDelivered: o.status?.toLowerCase() === 'delivered'
+      })));
+      console.log('배달 완료 주문 수:', deliveredOrders);
+      
+      // 디버깅 로그
+      console.log('=== calculateTotal 할인 조건 ===');
+      console.log('loyaltyConsent:', user.loyaltyConsent, typeof user.loyaltyConsent);
+      console.log('consentName:', user.consentName, typeof user.consentName);
+      console.log('consentAddress:', user.consentAddress, typeof user.consentAddress);
+      console.log('consentPhone:', user.consentPhone, typeof user.consentPhone);
+      console.log('allConsentsGiven:', allConsentsGiven);
+      console.log('deliveredOrders:', deliveredOrders);
+      console.log('previousOrders.length:', previousOrders.length);
+      console.log('loyaltyEligible:', loyaltyEligible);
+      console.log('originalSubtotal:', subtotal);
+      
+      // 할인 적용
+      if (loyaltyEligible) {
+        const originalSubtotal = subtotal;
+        subtotal = Math.round(subtotal * 0.9);
+        console.log('✅ 할인 적용됨!');
+        console.log('originalSubtotal:', originalSubtotal);
+        console.log('discountedSubtotal:', subtotal);
+        console.log('discountAmount:', originalSubtotal - subtotal);
+      } else {
+        console.log('❌ 할인 미적용 - 조건 불충족');
+        console.log('조건 확인:', {
+          loyaltyConsent: user.loyaltyConsent,
+          allConsentsGiven,
+          deliveredOrders,
+          requiredDeliveredOrders: 4
+        });
+      }
+      console.log('================================');
+    }
     
     // 주문 수정 시 당일 변경 수수료 계산
     let modificationFee = 0;
@@ -566,7 +612,15 @@ useEffect(() => {
       }
     }
 
-    return subtotal + modificationFee;
+    const finalTotal = subtotal + modificationFee;
+    console.log('최종 총액 계산:', { 
+      subtotal: subtotal, 
+      modificationFee: modificationFee, 
+      finalTotal: finalTotal,
+      user: user ? '있음' : '없음',
+      previousOrdersCount: previousOrders.length
+    });
+    return finalTotal;
   };
 
   const calculateModificationFee = () => {
@@ -884,8 +938,7 @@ useEffect(() => {
         if (loyaltyDiscountApplied) {
           const originalPrice = response.data.original_price;
           const discountAmount = response.data.discount_amount;
-          const deliveredOrdersCount = response.data.delivered_orders_count;
-          successMessage = `주문이 접수되었습니다.\n\n🎉 할인 혜택이 적용되었습니다!\n배달 완료 ${deliveredOrdersCount}회 달성으로 10% 할인이 적용되었습니다.\n원래 가격: ${originalPrice?.toLocaleString()}원\n할인 금액: ${discountAmount?.toLocaleString()}원\n최종 가격: ${response.data.total_price?.toLocaleString()}원\n\n관리자 승인 후 직원에게 전달됩니다.`;
+          successMessage = `주문이 접수되었습니다.\n\n🎉 10% 할인 혜택이 적용되었습니다!\n원래 가격: ${originalPrice?.toLocaleString()}원\n할인 금액: ${discountAmount?.toLocaleString()}원\n최종 가격: ${response.data.total_price?.toLocaleString()}원\n\n관리자 승인 후 직원에게 전달됩니다.`;
         }
         
         // 주문 생성 성공 후 즉시 리다이렉트하여 추가 호출 방지
@@ -1256,6 +1309,68 @@ useEffect(() => {
                 )}
               </div>
 
+              {/* 할인 혜택 안내 문구 - 배달 주소 아래, 총 가격 위 */}
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                {(() => {
+                  if (!user) {
+                    return (
+                      <div style={{ 
+                        padding: '12px', 
+                        background: '#2a2a2a', 
+                        borderRadius: '8px', 
+                        border: '1px solid #666',
+                        fontSize: '14px',
+                        textAlign: 'center',
+                        color: '#999'
+                      }}>
+                        <span>로그인이 필요합니다.</span>
+                      </div>
+                    );
+                  }
+                  
+                  const allConsentsGiven = Boolean(user.consentName) && Boolean(user.consentAddress) && Boolean(user.consentPhone);
+                  const deliveredOrders = previousOrders.filter(order => {
+                  const status = order.status?.toLowerCase() || '';
+                  return status === 'delivered';
+                }).length;
+                  const loyaltyEligible = Boolean(user.loyaltyConsent) && allConsentsGiven && deliveredOrders >= 4;
+                  
+                  if (loyaltyEligible) {
+                    return (
+                      <div style={{ 
+                        padding: '12px', 
+                        background: '#2a3a2a', 
+                        borderRadius: '8px', 
+                        border: '2px solid #4aaf4a',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        textAlign: 'center'
+                      }}>
+                        <span style={{ color: '#4aaf4a' }}>
+                          단골 고객입니다. 10% 할인 혜택 적용
+                        </span>
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div style={{ 
+                        padding: '12px', 
+                        background: '#2a2a2a', 
+                        borderRadius: '8px', 
+                        border: '1px solid #666',
+                        fontSize: '14px',
+                        textAlign: 'center',
+                        color: '#999'
+                      }}>
+                        <span style={{ color: '#999' }}>
+                          단골 고객 10% 할인 혜택: 단골 할인 동의 및 모든 개인정보 동의 완료, 배달 완료 4회 이상 필요
+                        </span>
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
+
           {isModifying && (
             <div className="form-group">
               <label>예약 변경 사유</label>
@@ -1274,7 +1389,11 @@ useEffect(() => {
 
               <div className="total-price">
                 <h3>총 가격</h3>
-                <div className="amount">{calculateTotal().toLocaleString()}원</div>
+                {(() => {
+                  const total = calculateTotal();
+                  console.log('총 가격 표시:', total);
+                  return <div className="amount">{total.toLocaleString()}원</div>;
+                })()}
               </div>
 
               {error && <div className="error">{error}</div>}
@@ -1443,20 +1562,65 @@ useEffect(() => {
                   )}
                 </div>
               )}
-              <div style={{
-                paddingTop: '15px',
-                borderTop: '2px solid #d4af37',
-                fontSize: '18px',
-                fontWeight: 'bold',
-                color: '#d4af37'
-              }}>
-                총 금액: {calculateTotal().toLocaleString()}원
-                {calculateModificationFee() > 0 && (
-                  <div style={{ fontSize: '14px', color: '#ffaa00', marginTop: '5px', fontWeight: 'normal' }}>
-                    (기본 금액 + 변경 수수료 {calculateModificationFee().toLocaleString()}원 포함)
-                  </div>
-                )}
-              </div>
+              {(() => {
+                if (!user) {
+                  return null;
+                }
+                
+                const allConsentsGiven = Boolean(user.consentName) && Boolean(user.consentAddress) && Boolean(user.consentPhone);
+                const deliveredOrders = previousOrders.filter(order => {
+                  const status = order.status?.toLowerCase() || '';
+                  return status === 'delivered';
+                }).length;
+                const loyaltyEligible = Boolean(user.loyaltyConsent) && allConsentsGiven && deliveredOrders >= 4;
+                const style = servingStyles.find(s => s.name === selectedStyle);
+                const styleMultiplier = style?.price_multiplier || 1;
+                const dinner = dinners.find(d => d.id === selectedDinner);
+                const basePrice = dinner ? dinner.base_price * styleMultiplier : 0;
+                const defaultItemsPrice = dinner ? dinner.menu_items.reduce((sum, defaultItem) => {
+                  const menuItem = menuItems.find(m => m.id === defaultItem.id);
+                  const defaultQuantity = defaultItem.quantity || 1;
+                  return sum + (menuItem?.price || 0) * defaultQuantity;
+                }, 0) : 0;
+                const currentItemsPrice = orderItems.reduce((sum, item) => {
+                  const menuItem = menuItems.find(m => m.id === item.menu_item_id);
+                  return sum + (menuItem?.price || 0) * item.quantity;
+                }, 0);
+                const additionalItemsPrice = Math.max(0, currentItemsPrice - defaultItemsPrice);
+                const originalSubtotal = basePrice + additionalItemsPrice;
+                const discountAmount = loyaltyEligible ? Math.round(originalSubtotal * 0.1) : 0;
+                
+                return (
+                  <>
+                    {loyaltyEligible && (
+                      <div style={{ marginBottom: '10px', padding: '10px', background: '#2a3a2a', borderRadius: '4px', border: '1px solid #4aaf4a' }}>
+                        <span style={{ color: '#4aaf4a' }}>
+                          🎉 10% 할인 혜택이 적용됩니다!
+                        </span>
+                      </div>
+                    )}
+                    <div style={{
+                      paddingTop: '15px',
+                      borderTop: '2px solid #d4af37',
+                      fontSize: '18px',
+                      fontWeight: 'bold',
+                      color: '#d4af37'
+                    }}>
+                      총 금액: {calculateTotal().toLocaleString()}원
+                      {loyaltyEligible && (
+                        <div style={{ fontSize: '14px', color: '#4aaf4a', marginTop: '5px', fontWeight: 'normal' }}>
+                          (원래 가격: {originalSubtotal.toLocaleString()}원 - 할인: {discountAmount.toLocaleString()}원)
+                        </div>
+                      )}
+                      {calculateModificationFee() > 0 && (
+                        <div style={{ fontSize: '14px', color: '#ffaa00', marginTop: '5px', fontWeight: 'normal' }}>
+                          (기본 금액 + 변경 수수료 {calculateModificationFee().toLocaleString()}원 포함)
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
           <div className="card-info-block" style={{ marginBottom: '20px' }}>

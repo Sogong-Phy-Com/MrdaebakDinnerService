@@ -44,6 +44,10 @@ interface Order {
   delivery_employee_name?: string;
   items?: OrderItem[];
   admin_approval_status?: string;
+  loyalty_discount_applied?: boolean;
+  original_price?: number;
+  discount_amount?: number;
+  discount_percentage?: number;
 }
 
 interface User {
@@ -902,6 +906,11 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
                           <p style={{ color: '#fff', margin: '5px 0', fontSize: '12px' }}>
                             배달 시간: {formatTime(order.delivery_time || '')}
                           </p>
+                          {order.loyalty_discount_applied && (
+                            <p style={{ color: '#4aaf4a', margin: '5px 0', fontSize: '12px', fontWeight: 'bold' }}>
+                              💰 단골 할인: {order.discount_amount?.toLocaleString()}원 할인 ({order.discount_percentage}%)
+                            </p>
+                          )}
                           {hasCookingTask && (
                             <p style={{ color: '#FFD700', margin: '5px 0', fontSize: '12px', fontWeight: 'bold' }}>
                               🔧 조리 담당
@@ -1129,6 +1138,19 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ type: propType }) =
                                  order.status === 'ready' ? '준비 완료' : '주문 접수'}
                               </span>
                             </div>
+                            {order.loyalty_discount_applied && (
+                              <div className="detail-item" style={{ background: '#2a3a2a', padding: '10px', borderRadius: '8px', border: '1px solid #4aaf4a', marginTop: '10px' }}>
+                                <span className="detail-label" style={{ color: '#4aaf4a' }}>단골 할인:</span>
+                                <span className="detail-value" style={{ color: '#4aaf4a' }}>
+                                  {order.discount_amount?.toLocaleString()}원 할인 ({order.discount_percentage}%)
+                                  {order.original_price && (
+                                    <span style={{ fontSize: '12px', color: '#ccc', marginLeft: '8px' }}>
+                                      (원가: {order.original_price.toLocaleString()}원)
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            )}
                           </div>
                           {!isAdmin && (() => {
                             // 로컬 날짜 문자열 생성 (UTC 변환 없이)

@@ -44,10 +44,19 @@ public class AuthService {
         user.setRole(role);
         user.setSecurityQuestion(request.getSecurityQuestion());
         user.setSecurityAnswer(request.getSecurityAnswer());
-        user.setConsentName(Boolean.TRUE.equals(request.getConsentName()));
-        user.setConsentAddress(Boolean.TRUE.equals(request.getConsentAddress()));
-        user.setConsentPhone(Boolean.TRUE.equals(request.getConsentPhone()));
-        user.setLoyaltyConsent(Boolean.TRUE.equals(request.getLoyaltyConsent()));
+        
+        // 직원/관리자는 모든 개인정보 동의 자동 설정
+        if (role.equals("employee") || role.equals("admin")) {
+            user.setConsentName(true);
+            user.setConsentAddress(true);
+            user.setConsentPhone(true);
+            user.setLoyaltyConsent(true);
+        } else {
+            user.setConsentName(Boolean.TRUE.equals(request.getConsentName()));
+            user.setConsentAddress(Boolean.TRUE.equals(request.getConsentAddress()));
+            user.setConsentPhone(Boolean.TRUE.equals(request.getConsentPhone()));
+            user.setLoyaltyConsent(Boolean.TRUE.equals(request.getLoyaltyConsent()));
+        }
         
         // Set approval status: customer is auto-approved, employee/admin need approval
         if (role.equals("customer")) {

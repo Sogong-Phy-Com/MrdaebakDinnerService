@@ -14,6 +14,7 @@ import com.mrdabak.dinnerservice.model.OrderChangeRequestStatus;
 import com.mrdabak.dinnerservice.model.OrderItem;
 import com.mrdabak.dinnerservice.model.User;
 import com.mrdabak.dinnerservice.repository.DinnerTypeRepository;
+import com.mrdabak.dinnerservice.repository.DinnerMenuItemRepository;
 import com.mrdabak.dinnerservice.repository.MenuItemRepository;
 import com.mrdabak.dinnerservice.repository.UserRepository;
 import com.mrdabak.dinnerservice.repository.order.OrderChangeRequestItemRepository;
@@ -49,6 +50,7 @@ public class OrderChangeRequestService {
     private final OrderChangeRequestRepository changeRequestRepository;
     private final OrderChangeRequestItemRepository changeRequestItemRepository;
     private final DinnerTypeRepository dinnerTypeRepository;
+    private final DinnerMenuItemRepository dinnerMenuItemRepository;
     private final MenuItemRepository menuItemRepository;
     private final UserRepository userRepository;
     private final InventoryService inventoryService;
@@ -60,6 +62,7 @@ public class OrderChangeRequestService {
                                      OrderChangeRequestRepository changeRequestRepository,
                                      OrderChangeRequestItemRepository changeRequestItemRepository,
                                      DinnerTypeRepository dinnerTypeRepository,
+                                     DinnerMenuItemRepository dinnerMenuItemRepository,
                                      MenuItemRepository menuItemRepository,
                                      UserRepository userRepository,
                                      InventoryService inventoryService,
@@ -70,6 +73,7 @@ public class OrderChangeRequestService {
         this.changeRequestRepository = changeRequestRepository;
         this.changeRequestItemRepository = changeRequestItemRepository;
         this.dinnerTypeRepository = dinnerTypeRepository;
+        this.dinnerMenuItemRepository = dinnerMenuItemRepository;
         this.menuItemRepository = menuItemRepository;
         this.userRepository = userRepository;
         this.inventoryService = inventoryService;
@@ -359,24 +363,47 @@ public class OrderChangeRequestService {
         );
         double basePrice = dinner.getBasePrice() * styleMultipliers.getOrDefault(command.getServingStyle(), 1.0);
 
-        double itemsPrice = 0;
+        // 기본 제공 메뉴 항목 정보 가져오기
+        List<com.mrdabak.dinnerservice.model.DinnerMenuItem> defaultMenuItems = 
+                dinnerMenuItemRepository.findByDinnerTypeId(dinner.getId());
+        
+        // 기본 제공 항목의 기본 수량을 Map으로 저장
+        Map<Long, Integer> defaultQuantities = new java.util.HashMap<>();
+        for (com.mrdabak.dinnerservice.model.DinnerMenuItem dmi : defaultMenuItems) {
+            defaultQuantities.put(dmi.getMenuItemId(), dmi.getQuantity());
+        }
+
+        // 추가 수량만 계산 (기본 제공 항목의 기본 수량은 제외)
+        double additionalItemsPrice = 0;
         for (OrderItemDto itemDto : command.getItems()) {
             MenuItem menuItem = menuItemRepository.findById(itemDto.getMenuItemId())
                     .orElseThrow(() -> new RuntimeException("메뉴 아이템을 찾을 수 없습니다: " + itemDto.getMenuItemId()));
             if (itemDto.getQuantity() == null || itemDto.getQuantity() <= 0) {
                 throw new RuntimeException("메뉴 수량은 1 이상이어야 합니다.");
             }
-            itemsPrice += menuItem.getPrice() * itemDto.getQuantity();
+            
+            // 기본 제공 수량 확인
+            int defaultQuantity = defaultQuantities.getOrDefault(itemDto.getMenuItemId(), 0);
+            // 추가 수량만 계산 (현재 수량 - 기본 제공 수량)
+            int additionalQuantity = Math.max(0, itemDto.getQuantity() - defaultQuantity);
+            additionalItemsPrice += menuItem.getPrice() * additionalQuantity;
         }
 
-        double subtotal = basePrice + itemsPrice;
+        // 기본 가격 + 추가 항목 가격 (기본 제공 항목은 기본 가격에 이미 포함됨)
+        double subtotal = basePrice + additionalItemsPrice;
         User user = userRepository.findById(order.getUserId())
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
         List<Order> previousOrders = orderRepository.findByUserIdOrderByCreatedAtDesc(order.getUserId());
         long deliveredOrders = previousOrders.stream()
                 .filter(o -> "delivered".equalsIgnoreCase(o.getStatus()))
                 .count();
-        boolean loyaltyEligible = Boolean.TRUE.equals(user.getLoyaltyConsent()) && deliveredOrders >= 5;
+        // 모든 개인정보 동의(consentName, consentAddress, consentPhone)가 true여야 할인 적용
+        boolean allConsentsGiven = Boolean.TRUE.equals(user.getConsentName()) 
+                && Boolean.TRUE.equals(user.getConsentAddress()) 
+                && Boolean.TRUE.equals(user.getConsentPhone());
+        boolean loyaltyEligible = Boolean.TRUE.equals(user.getLoyaltyConsent()) 
+                && allConsentsGiven 
+                && deliveredOrders >= 5;
         if (loyaltyEligible) {
             subtotal *= 0.9;
         }

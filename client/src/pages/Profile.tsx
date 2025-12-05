@@ -547,8 +547,13 @@ const Profile: React.FC = () => {
                       </ul>
                       <div className={`loyalty-message ${user?.loyaltyConsent ? 'success' : 'muted'}`}>
                         {user?.loyaltyConsent
-                          ? '단골 할인 안내 동의 완료! 배달 완료 5회 이상부터 10% 할인 혜택이 적용됩니다.'
-                          : '단골 할인 혜택을 받으려면 "단골 할인 안내 동의" 설정이 필요합니다.'}
+                          ? (() => {
+                              const allConsentsGiven = user?.consentName && user?.consentAddress && user?.consentPhone;
+                              return allConsentsGiven
+                                ? '단골 할인 안내 동의 완료! 모든 개인정보 동의가 완료되어 5번째 주문부터 10% 할인 혜택이 적용됩니다. (4번의 배달 완료 이후 5번째 주문부터 할인 적용)'
+                                : '단골 할인 안내 동의 완료! 하지만 모든 개인정보 동의(이름, 주소, 전화번호)가 필요합니다. 모든 개인정보 동의를 완료하시면 4번의 배달 완료 이후 5번째 주문부터 10% 할인 혜택이 적용됩니다.';
+                            })()
+                          : '단골 할인 혜택을 받으려면 "단골 할인 안내 동의" 및 모든 개인정보 동의(이름, 주소, 전화번호)가 필요합니다. 모든 동의를 완료하시면 4번의 배달 완료 이후 5번째 주문부터 10% 할인 혜택이 적용됩니다.'}
                       </div>
                     </div>
                   </>

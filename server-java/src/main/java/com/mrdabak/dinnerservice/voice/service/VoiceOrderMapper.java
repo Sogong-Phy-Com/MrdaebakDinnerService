@@ -88,31 +88,47 @@ public class VoiceOrderMapper {
         menuCatalogService.getDefaultItems(dinner.id()).forEach(portion ->
                 quantities.put(portion.menuItemId(), portion.quantity()));
 
+        // 인분(portion) 배수 추출 및 적용
+        int portionMultiplier = extractPortionMultiplier(state);
+        if (portionMultiplier > 1) {
+            // 모든 기본 수량에 인분 배수 적용
+            quantities.replaceAll((k, v) -> v * portionMultiplier);
+        }
+
         if (state.getMenuAdjustments() != null) {
             for (VoiceOrderItem adjustment : state.getMenuAdjustments()) {
                 if (adjustment.getQuantity() == null) {
                     continue;
                 }
-                VoiceMenuCatalogService.MenuItemPortion target = menuCatalogService.describeMenuItem(
-                        adjustment.getKey() != null ? adjustment.getKey() : adjustment.getName());
-                
-                Long menuItemId = target.menuItemId();
-                Integer currentQuantity = quantities.getOrDefault(menuItemId, 0);
-                
-                // action이 "add", "increase", "추가", "증가"인 경우 기존 수량에 추가
-                if (adjustment.getAction() != null && 
-                    (adjustment.getAction().toLowerCase().contains("add") || 
-                     adjustment.getAction().toLowerCase().contains("increase") ||
-                     adjustment.getAction().toLowerCase().contains("추가") ||
-                     adjustment.getAction().toLowerCase().contains("증가"))) {
-                    int addQuantity = adjustment.getQuantity() != null ? adjustment.getQuantity() : 1;
-                    quantities.put(menuItemId, currentQuantity + addQuantity);
-                } else if (adjustment.getQuantity() <= 0) {
-                    // 수량이 0 이하이면 제거
-                    quantities.remove(menuItemId);
-                } else {
-                    // action이 없거나 "set", "change"인 경우 수량을 직접 설정
-                    quantities.put(menuItemId, adjustment.getQuantity());
+                try {
+                    VoiceMenuCatalogService.MenuItemPortion target = menuCatalogService.describeMenuItem(
+                            adjustment.getKey() != null ? adjustment.getKey() : adjustment.getName());
+                    
+                    Long menuItemId = target.menuItemId();
+                    Integer currentQuantity = quantities.getOrDefault(menuItemId, 0);
+                    
+                    // action이 "add", "increase", "추가", "증가"인 경우 기존 수량에 추가
+                    if (adjustment.getAction() != null && 
+                        (adjustment.getAction().toLowerCase().contains("add") || 
+                         adjustment.getAction().toLowerCase().contains("increase") ||
+                         adjustment.getAction().toLowerCase().contains("추가") ||
+                         adjustment.getAction().toLowerCase().contains("증가"))) {
+                        int addQuantity = adjustment.getQuantity() != null ? adjustment.getQuantity() : 1;
+                        quantities.put(menuItemId, currentQuantity + addQuantity);
+                    } else if (adjustment.getQuantity() <= 0) {
+                        // 수량이 0 이하이면 제거
+                        quantities.remove(menuItemId);
+                    } else {
+                        // action이 없거나 "set", "change"인 경우 수량을 직접 설정
+                        // 인분 배수가 적용된 상태에서 추가 조정하므로, 인분 배수를 고려하여 설정
+                        if (portionMultiplier > 1) {
+                            quantities.put(menuItemId, adjustment.getQuantity());
+                        } else {
+                            quantities.put(menuItemId, adjustment.getQuantity());
+                        }
+                    }
+                } catch (Exception e) {
+                    // 메뉴 항목을 찾을 수 없는 경우 무시 (시스템 프롬프트에서 처리하도록)
                 }
             }
         }
@@ -120,6 +136,50 @@ public class VoiceOrderMapper {
         return quantities.entrySet().stream()
                 .map(entry -> new OrderItemDto(entry.getKey(), entry.getValue()))
                 .toList();
+    }
+    
+    /**
+     * 인분(portion) 배수 추출 (예: "2인분", "2명분" → 2)
+     */
+    private int extractPortionMultiplier(VoiceOrderState state) {
+        int multiplier = 1;
+        
+        // specialRequests에서 인분 정보 추출
+        if (state.getSpecialRequests() != null && !state.getSpecialRequests().isBlank()) {
+            String requests = state.getSpecialRequests().toLowerCase();
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(\\d+)\\s*(?:인분|명분)");
+            java.util.regex.Matcher matcher = pattern.matcher(requests);
+            if (matcher.find()) {
+                try {
+                    multiplier = Integer.parseInt(matcher.group(1));
+                } catch (Exception e) {
+                    // 파싱 실패 시 1 유지
+                }
+            }
+        }
+        
+        // menuAdjustments에서 인분 정보 추출
+        if (state.getMenuAdjustments() != null) {
+            for (VoiceOrderItem item : state.getMenuAdjustments()) {
+                if (item.getName() != null) {
+                    String name = item.getName().toLowerCase();
+                    java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(\\d+)\\s*(?:인분|명분)");
+                    java.util.regex.Matcher matcher = pattern.matcher(name);
+                    if (matcher.find()) {
+                        try {
+                            int found = Integer.parseInt(matcher.group(1));
+                            if (found > multiplier) {
+                                multiplier = found;
+                            }
+                        } catch (Exception e) {
+                            // 파싱 실패 시 무시
+                        }
+                    }
+                }
+            }
+        }
+        
+        return multiplier > 0 ? multiplier : 1;
     }
 
     private String resolveDeliveryTimestamp(VoiceOrderState state) {

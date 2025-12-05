@@ -452,7 +452,11 @@ const VoiceOrderPage: React.FC = () => {
         orderId: response.data.orderId,
         totalPrice: response.data.totalPrice,
         summary: response.data.summary,
-        confirmationMessage: response.data.confirmationMessage
+        confirmationMessage: response.data.confirmationMessage,
+        loyalty_discount_applied: response.data.loyalty_discount_applied,
+        original_price: response.data.original_price,
+        discount_amount: response.data.discount_amount,
+        discount_percentage: response.data.discount_percentage
       });
       setShowOrderConfirmation(true);
       
@@ -769,6 +773,13 @@ const VoiceOrderPage: React.FC = () => {
                   ))}
                 </div>
               </div>
+              {confirmedOrderData.loyalty_discount_applied && (
+                <div style={{ marginBottom: '10px', padding: '10px', background: '#2a3a2a', borderRadius: '4px', border: '1px solid #4aaf4a' }}>
+                  <span style={{ color: '#4aaf4a' }}>
+                    🎉 10% 할인 혜택이 적용되었습니다!
+                  </span>
+                </div>
+              )}
               <div style={{
                 paddingTop: '15px',
                 borderTop: '2px solid #d4af37',
@@ -777,6 +788,11 @@ const VoiceOrderPage: React.FC = () => {
                 color: '#d4af37'
               }}>
                 총 금액: {confirmedOrderData.totalPrice?.toLocaleString() || '0'}원
+                {confirmedOrderData.loyalty_discount_applied && confirmedOrderData.original_price && (
+                  <div style={{ fontSize: '14px', color: '#4aaf4a', marginTop: '5px', fontWeight: 'normal' }}>
+                    (원래 가격: {confirmedOrderData.original_price?.toLocaleString()}원 - 할인: {confirmedOrderData.discount_amount?.toLocaleString()}원)
+                  </div>
+                )}
               </div>
             </div>
 

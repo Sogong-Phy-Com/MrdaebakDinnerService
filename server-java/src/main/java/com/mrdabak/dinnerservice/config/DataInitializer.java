@@ -331,6 +331,11 @@ public class DataInitializer implements CommandLineRunner {
             employee.setApprovalStatus("approved"); // 관리자/직원 계정은 자동 승인
             employee.setSecurityQuestion("내 어릴적 별명은?");
             employee.setSecurityAnswer("asd");
+            // 직원/관리자는 모든 개인정보 동의 자동 설정
+            employee.setConsentName(true);
+            employee.setConsentAddress(true);
+            employee.setConsentPhone(true);
+            employee.setLoyaltyConsent(true);
             // 테스트용 더미 카드 정보 추가
             employee.setCardNumber("1234-5678-9012-3456");
             employee.setCardExpiry("12/25");

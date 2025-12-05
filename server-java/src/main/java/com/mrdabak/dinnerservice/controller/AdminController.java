@@ -12,6 +12,7 @@ import com.mrdabak.dinnerservice.repository.UserRepository;
 import com.mrdabak.dinnerservice.repository.order.OrderRepository;
 import com.mrdabak.dinnerservice.repository.order.OrderItemRepository;
 import com.mrdabak.dinnerservice.repository.DinnerTypeRepository;
+import com.mrdabak.dinnerservice.repository.DinnerMenuItemRepository;
 import com.mrdabak.dinnerservice.repository.MenuItemRepository;
 import com.mrdabak.dinnerservice.service.JwtService;
 import com.mrdabak.dinnerservice.service.DeliverySchedulingService;
@@ -21,6 +22,7 @@ import com.mrdabak.dinnerservice.repository.schedule.EmployeeWorkAssignmentRepos
 import com.mrdabak.dinnerservice.model.EmployeeWorkAssignment;
 import com.mrdabak.dinnerservice.repository.inventory.InventoryReservationRepository;
 import com.mrdabak.dinnerservice.util.DeliveryTimeUtils;
+import com.mrdabak.dinnerservice.util.PrivacyMaskingUtil;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -48,6 +50,7 @@ public class AdminController {
     private final OrderService orderService;
     private final OrderItemRepository orderItemRepository;
     private final DinnerTypeRepository dinnerTypeRepository;
+    private final DinnerMenuItemRepository dinnerMenuItemRepository;
     private final MenuItemRepository menuItemRepository;
     private final InventoryReservationRepository inventoryReservationRepository;
 
@@ -59,6 +62,7 @@ public class AdminController {
                           OrderService orderService,
                           OrderItemRepository orderItemRepository,
                           DinnerTypeRepository dinnerTypeRepository,
+                          DinnerMenuItemRepository dinnerMenuItemRepository,
                           MenuItemRepository menuItemRepository,
                           InventoryReservationRepository inventoryReservationRepository) {
         this.userRepository = userRepository;
@@ -71,6 +75,7 @@ public class AdminController {
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
         this.dinnerTypeRepository = dinnerTypeRepository;
+        this.dinnerMenuItemRepository = dinnerMenuItemRepository;
         this.menuItemRepository = menuItemRepository;
         this.inventoryReservationRepository = inventoryReservationRepository;
     }
@@ -89,6 +94,11 @@ public class AdminController {
             employee.setAddress(request.getAddress() != null ? request.getAddress() : "");
             employee.setPhone(request.getPhone() != null ? request.getPhone() : "");
             employee.setRole("employee");
+            // 직원은 모든 개인정보 동의 자동 설정
+            employee.setConsentName(true);
+            employee.setConsentAddress(true);
+            employee.setConsentPhone(true);
+            employee.setLoyaltyConsent(true);
 
             User savedEmployee = userRepository.save(employee);
             String token = jwtService.generateToken(savedEmployee.getId(), savedEmployee.getEmail(), savedEmployee.getRole());
@@ -108,8 +118,14 @@ public class AdminController {
     public ResponseEntity<?> getAllUsers() {
         return ResponseEntity.ok(userRepository.findAll().stream()
                 .map(user -> {
-                    UserDto dto = new UserDto(user.getId(), user.getEmail(), user.getName(),
-                            user.getAddress(), user.getPhone(), user.getRole(), user.getApprovalStatus());
+                    // 개인정보 공유 비동의 시 마스킹 처리
+                    String maskedName = PrivacyMaskingUtil.maskName(user);
+                    String maskedAddress = PrivacyMaskingUtil.maskAddress(user);
+                    String maskedPhone = PrivacyMaskingUtil.maskPhone(user);
+                    String email = PrivacyMaskingUtil.maskEmail(user);
+                    
+                    UserDto dto = new UserDto(user.getId(), email, maskedName,
+                            maskedAddress, maskedPhone, user.getRole(), user.getApprovalStatus());
                     if (user.getEmployeeType() != null) {
                         dto.setEmployeeType(user.getEmployeeType());
                     }
@@ -123,8 +139,14 @@ public class AdminController {
         return ResponseEntity.ok(userRepository.findAll().stream()
                 .filter(user -> "employee".equals(user.getRole()))
                 .map(user -> {
-                    UserDto dto = new UserDto(user.getId(), user.getEmail(), user.getName(),
-                            user.getAddress(), user.getPhone(), user.getRole(), user.getApprovalStatus());
+                    // 개인정보 공유 비동의 시 마스킹 처리
+                    String maskedName = PrivacyMaskingUtil.maskName(user);
+                    String maskedAddress = PrivacyMaskingUtil.maskAddress(user);
+                    String maskedPhone = PrivacyMaskingUtil.maskPhone(user);
+                    String email = PrivacyMaskingUtil.maskEmail(user);
+                    
+                    UserDto dto = new UserDto(user.getId(), email, maskedName,
+                            maskedAddress, maskedPhone, user.getRole(), user.getApprovalStatus());
                     if (user.getEmployeeType() != null) {
                         dto.setEmployeeType(user.getEmployeeType());
                     }
@@ -156,8 +178,14 @@ public class AdminController {
                 userRepository.save(employee);
             }
             
-            UserDto dto = new UserDto(employee.getId(), employee.getEmail(), employee.getName(),
-                    employee.getAddress(), employee.getPhone(), employee.getRole(), employee.getApprovalStatus());
+            // 개인정보 공유 비동의 시 마스킹 처리
+            String maskedName = PrivacyMaskingUtil.maskName(employee);
+            String maskedAddress = PrivacyMaskingUtil.maskAddress(employee);
+            String maskedPhone = PrivacyMaskingUtil.maskPhone(employee);
+            String email = PrivacyMaskingUtil.maskEmail(employee);
+            
+            UserDto dto = new UserDto(employee.getId(), email, maskedName,
+                    maskedAddress, maskedPhone, employee.getRole(), employee.getApprovalStatus());
             if (employee.getEmployeeType() != null) {
                 dto.setEmployeeType(employee.getEmployeeType());
             }
@@ -172,8 +200,16 @@ public class AdminController {
     public ResponseEntity<?> getCustomers() {
         return ResponseEntity.ok(userRepository.findAll().stream()
                 .filter(user -> "customer".equals(user.getRole()))
-                .map(user -> new UserDto(user.getId(), user.getEmail(), user.getName(),
-                        user.getAddress(), user.getPhone(), user.getRole(), user.getApprovalStatus()))
+                .map(user -> {
+                    // 개인정보 공유 비동의 시 마스킹 처리
+                    String maskedName = PrivacyMaskingUtil.maskName(user);
+                    String maskedAddress = PrivacyMaskingUtil.maskAddress(user);
+                    String maskedPhone = PrivacyMaskingUtil.maskPhone(user);
+                    String email = PrivacyMaskingUtil.maskEmail(user);
+                    
+                    return new UserDto(user.getId(), email, maskedName,
+                            maskedAddress, maskedPhone, user.getRole(), user.getApprovalStatus());
+                })
                 .toList());
     }
 
@@ -181,16 +217,24 @@ public class AdminController {
     public ResponseEntity<?> getPendingApprovals() {
         return ResponseEntity.ok(userRepository.findAll().stream()
                 .filter(user -> "pending".equals(user.getApprovalStatus()))
-                .map(user -> Map.of(
-                        "id", user.getId(),
-                        "email", user.getEmail(),
-                        "name", user.getName(),
-                        "phone", user.getPhone(),
-                        "address", user.getAddress(),
-                        "role", user.getRole(),
-                        "approvalStatus", user.getApprovalStatus(),
-                        "createdAt", user.getCreatedAt() != null ? user.getCreatedAt().toString() : ""
-                ))
+                .map(user -> {
+                    // 개인정보 공유 비동의 시 마스킹 처리
+                    String maskedName = PrivacyMaskingUtil.maskName(user);
+                    String maskedAddress = PrivacyMaskingUtil.maskAddress(user);
+                    String maskedPhone = PrivacyMaskingUtil.maskPhone(user);
+                    String email = PrivacyMaskingUtil.maskEmail(user);
+                    
+                    return Map.of(
+                            "id", user.getId(),
+                            "email", email,
+                            "name", maskedName,
+                            "phone", maskedPhone,
+                            "address", maskedAddress,
+                            "role", user.getRole(),
+                            "approvalStatus", user.getApprovalStatus(),
+                            "createdAt", user.getCreatedAt() != null ? user.getCreatedAt().toString() : ""
+                    );
+                })
                 .toList());
     }
 
@@ -332,8 +376,14 @@ public class AdminController {
             user.setRole("admin");
             userRepository.save(user);
             
-            UserDto dto = new UserDto(user.getId(), user.getEmail(), user.getName(),
-                    user.getAddress(), user.getPhone(), user.getRole(), user.getApprovalStatus());
+            // 개인정보 공유 비동의 시 마스킹 처리
+            String maskedName = PrivacyMaskingUtil.maskName(user);
+            String maskedAddress = PrivacyMaskingUtil.maskAddress(user);
+            String maskedPhone = PrivacyMaskingUtil.maskPhone(user);
+            String email = PrivacyMaskingUtil.maskEmail(user);
+            
+            UserDto dto = new UserDto(user.getId(), email, maskedName,
+                    maskedAddress, maskedPhone, user.getRole(), user.getApprovalStatus());
             
             return ResponseEntity.ok(dto);
         } catch (Exception e) {
@@ -516,7 +566,7 @@ public class AdminController {
             // Get orders for this user
             List<Order> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId);
             
-            // Convert to DTOs with order items
+            // Convert to DTOs with order items (주문 내역에서는 정보 표시)
             List<Map<String, Object>> orderDtos = orders.stream().map(order -> {
                 Map<String, Object> orderMap = new HashMap<>();
                 orderMap.put("id", order.getId());
@@ -535,6 +585,69 @@ public class AdminController {
                 if (dinner != null) {
                     orderMap.put("dinner_name", dinner.getName());
                     orderMap.put("dinner_name_en", dinner.getNameEn());
+                }
+                
+                // 할인 정보 계산 및 추가
+                User user = userRepository.findById(order.getUserId()).orElse(null);
+                if (user != null) {
+                    List<Order> previousOrders = orderRepository.findByUserIdOrderByCreatedAtDesc(order.getUserId());
+                    long deliveredOrders = previousOrders.stream()
+                            .filter(o -> "delivered".equalsIgnoreCase(o.getStatus()))
+                            .count();
+                    // 모든 개인정보 동의(consentName, consentAddress, consentPhone)가 true여야 할인 적용
+                    boolean allConsentsGiven = Boolean.TRUE.equals(user.getConsentName()) 
+                            && Boolean.TRUE.equals(user.getConsentAddress()) 
+                            && Boolean.TRUE.equals(user.getConsentPhone());
+                    boolean loyaltyEligible = Boolean.TRUE.equals(user.getLoyaltyConsent()) 
+                            && allConsentsGiven 
+                            && deliveredOrders >= 4;
+                    
+                    if (loyaltyEligible && dinner != null) {
+                        // 할인이 적용된 경우: 주문 항목을 기반으로 원래 가격 재계산 (기본 제공 항목 제외)
+                        Map<String, Double> styleMultipliers = Map.of(
+                                "simple", 1.0,
+                                "grand", 1.3,
+                                "deluxe", 1.6
+                        );
+                        double basePrice = dinner.getBasePrice() * styleMultipliers.getOrDefault(order.getServingStyle(), 1.0);
+                        
+                        // 기본 제공 메뉴 항목 정보 가져오기
+                        List<com.mrdabak.dinnerservice.model.DinnerMenuItem> defaultMenuItems = 
+                                dinnerMenuItemRepository.findByDinnerTypeId(dinner.getId());
+                        
+                        // 기본 제공 항목의 기본 수량을 Map으로 저장
+                        Map<Long, Integer> defaultQuantities = new java.util.HashMap<>();
+                        for (com.mrdabak.dinnerservice.model.DinnerMenuItem dmi : defaultMenuItems) {
+                            defaultQuantities.put(dmi.getMenuItemId(), dmi.getQuantity());
+                        }
+                        
+                        // 추가 수량만 계산 (기본 제공 항목의 기본 수량은 제외)
+                        double additionalItemsPrice = 0;
+                        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+                        for (OrderItem item : items) {
+                            MenuItem menuItem = menuItemRepository.findById(item.getMenuItemId()).orElse(null);
+                            if (menuItem != null) {
+                                // 기본 제공 수량 확인
+                                int defaultQuantity = defaultQuantities.getOrDefault(item.getMenuItemId(), 0);
+                                // 추가 수량만 계산 (현재 수량 - 기본 제공 수량)
+                                int additionalQuantity = Math.max(0, item.getQuantity() - defaultQuantity);
+                                additionalItemsPrice += menuItem.getPrice() * additionalQuantity;
+                            }
+                        }
+                        
+                        double originalPrice = basePrice + additionalItemsPrice;
+                        double discountedPrice = order.getTotalPrice();
+                        int discountAmount = (int) Math.round(originalPrice - discountedPrice);
+                        
+                        orderMap.put("loyalty_discount_applied", true);
+                        orderMap.put("original_price", (int) Math.round(originalPrice));
+                        orderMap.put("discount_amount", discountAmount);
+                        orderMap.put("discount_percentage", 10);
+                    } else {
+                        orderMap.put("loyalty_discount_applied", false);
+                    }
+                } else {
+                    orderMap.put("loyalty_discount_applied", false);
                 }
                 
                 // Add order items
@@ -581,19 +694,69 @@ public class AdminController {
                 orderMap.put("dinner_type_id", order.getDinnerTypeId());
                 orderMap.put("serving_style", order.getServingStyle());
                 orderMap.put("delivery_time", order.getDeliveryTime());
-                orderMap.put("delivery_address", order.getDeliveryAddress());
                 orderMap.put("total_price", order.getTotalPrice());
                 orderMap.put("status", order.getStatus());
                 orderMap.put("payment_status", order.getPaymentStatus());
                 orderMap.put("admin_approval_status", order.getAdminApprovalStatus());
                 orderMap.put("created_at", order.getCreatedAt());
                 
-                // Add user info
+                // Add user info (주문 내역에서는 정보 표시)
                 User user = userRepository.findById(order.getUserId()).orElse(null);
                 if (user != null) {
                     orderMap.put("user_name", user.getName());
                     orderMap.put("user_email", user.getEmail());
                     orderMap.put("user_phone", user.getPhone());
+                }
+                orderMap.put("delivery_address", order.getDeliveryAddress());
+                
+                // 할인 정보 계산 및 추가
+                if (user != null) {
+                    List<Order> previousOrders = orderRepository.findByUserIdOrderByCreatedAtDesc(order.getUserId());
+                    long deliveredOrders = previousOrders.stream()
+                            .filter(o -> "delivered".equalsIgnoreCase(o.getStatus()))
+                            .count();
+                    // 모든 개인정보 동의(consentName, consentAddress, consentPhone)가 true여야 할인 적용
+                    boolean allConsentsGiven = Boolean.TRUE.equals(user.getConsentName()) 
+                            && Boolean.TRUE.equals(user.getConsentAddress()) 
+                            && Boolean.TRUE.equals(user.getConsentPhone());
+                    boolean loyaltyEligible = Boolean.TRUE.equals(user.getLoyaltyConsent()) 
+                            && allConsentsGiven 
+                            && deliveredOrders >= 4;
+                    
+                    if (loyaltyEligible) {
+                        // 할인이 적용된 경우: 주문 항목을 기반으로 원래 가격 재계산
+                        DinnerType dinner = dinnerTypeRepository.findById(order.getDinnerTypeId()).orElse(null);
+                        double originalPrice = 0;
+                        if (dinner != null) {
+                            Map<String, Double> styleMultipliers = Map.of(
+                                    "simple", 1.0,
+                                    "grand", 1.3,
+                                    "deluxe", 1.6
+                            );
+                            double basePrice = dinner.getBasePrice() * styleMultipliers.getOrDefault(order.getServingStyle(), 1.0);
+                            double itemsPrice = 0;
+                            List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+                            for (OrderItem item : items) {
+                                MenuItem menuItem = menuItemRepository.findById(item.getMenuItemId()).orElse(null);
+                                if (menuItem != null) {
+                                    itemsPrice += menuItem.getPrice() * item.getQuantity();
+                                }
+                            }
+                            originalPrice = basePrice + itemsPrice;
+                        }
+                        
+                        double discountedPrice = order.getTotalPrice();
+                        int discountAmount = (int) Math.round(originalPrice - discountedPrice);
+                        
+                        orderMap.put("loyalty_discount_applied", true);
+                        orderMap.put("original_price", (int) Math.round(originalPrice));
+                        orderMap.put("discount_amount", discountAmount);
+                        orderMap.put("discount_percentage", 10);
+                    } else {
+                        orderMap.put("loyalty_discount_applied", false);
+                    }
+                } else {
+                    orderMap.put("loyalty_discount_applied", false);
                 }
                 
                 // Add order items

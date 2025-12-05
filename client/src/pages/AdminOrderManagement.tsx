@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import TopLogo from '../components/TopLogo';
 import './Orders.css';
@@ -7,7 +6,6 @@ import './Orders.css';
 const API_URL = process.env.REACT_APP_API_URL || (window.location.protocol === 'https:' ? '/api' : 'http://localhost:5000/api');
 
 const AdminOrderManagement: React.FC = () => {
-  const navigate = useNavigate();
   const [orders, setOrders] = useState<any[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState('');
@@ -16,6 +14,7 @@ const AdminOrderManagement: React.FC = () => {
 
   useEffect(() => {
     fetchOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const pendingOrders = orders.filter((order: any) =>
@@ -71,6 +70,19 @@ const AdminOrderManagement: React.FC = () => {
             <span className="info-icon">⏰</span>
             <span className="info-text">{new Date(order.delivery_time).toLocaleString('ko-KR')}</span>
           </div>
+          {order.loyalty_discount_applied && (
+            <div className="order-info-row" style={{ marginTop: '8px', padding: '10px', background: '#2a3a2a', borderRadius: '8px', border: '1px solid #4aaf4a' }}>
+              <span className="info-icon">💰</span>
+              <span className="info-text" style={{ color: '#4aaf4a' }}>
+                단골 할인 적용: {order.discount_amount?.toLocaleString()}원 할인 ({order.discount_percentage}%)
+                {order.original_price && (
+                  <span style={{ fontSize: '12px', color: '#ccc', marginLeft: '8px' }}>
+                    (원가: {order.original_price.toLocaleString()}원)
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: '180px', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
@@ -296,6 +308,19 @@ const AdminOrderManagement: React.FC = () => {
             <p style={{ marginBottom: '10px' }}>고객: {detailOrder.customer_name} • {detailOrder.customer_phone}</p>
             <p style={{ marginBottom: '10px' }}>배달 주소: {detailOrder.delivery_address}</p>
             <p style={{ marginBottom: '10px' }}>배달 시간: {new Date(detailOrder.delivery_time).toLocaleString('ko-KR')}</p>
+            {detailOrder.loyalty_discount_applied && (
+              <div style={{ marginBottom: '10px', padding: '10px', background: '#2a3a2a', borderRadius: '8px', border: '1px solid #4aaf4a' }}>
+                <strong style={{ color: '#4aaf4a' }}>단골 할인 적용:</strong>
+                <span style={{ marginLeft: '8px', color: '#fff' }}>
+                  {detailOrder.discount_amount?.toLocaleString()}원 할인 ({detailOrder.discount_percentage}%)
+                  {detailOrder.original_price && (
+                    <span style={{ fontSize: '12px', color: '#ccc', marginLeft: '8px' }}>
+                      (원가: {detailOrder.original_price.toLocaleString()}원)
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
             <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px', marginTop: '12px' }}>
               <h4>주문 항목</h4>
               <ul>

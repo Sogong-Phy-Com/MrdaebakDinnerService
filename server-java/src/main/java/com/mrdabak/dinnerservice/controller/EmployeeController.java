@@ -31,6 +31,7 @@ public class EmployeeController {
     private final UserRepository userRepository;
     private final DinnerTypeRepository dinnerTypeRepository;
     private final MenuItemRepository menuItemRepository;
+    private final DinnerMenuItemRepository dinnerMenuItemRepository;
     private final DeliverySchedulingService deliverySchedulingService;
     private final OrderService orderService;
     private final InventoryService inventoryService;
@@ -40,6 +41,7 @@ public class EmployeeController {
     public EmployeeController(OrderRepository orderRepository, OrderItemRepository orderItemRepository,
                              UserRepository userRepository, DinnerTypeRepository dinnerTypeRepository,
                              MenuItemRepository menuItemRepository,
+                             DinnerMenuItemRepository dinnerMenuItemRepository,
                              DeliverySchedulingService deliverySchedulingService,
                              OrderService orderService,
                              InventoryService inventoryService,
@@ -51,6 +53,7 @@ public class EmployeeController {
         this.userRepository = userRepository;
         this.dinnerTypeRepository = dinnerTypeRepository;
         this.menuItemRepository = menuItemRepository;
+        this.dinnerMenuItemRepository = dinnerMenuItemRepository;
         this.deliverySchedulingService = deliverySchedulingService;
         this.orderService = orderService;
         this.inventoryService = inventoryService;
@@ -129,7 +132,7 @@ public class EmployeeController {
             orderMap.put("dinner_type_id", order.getDinnerTypeId());
             orderMap.put("serving_style", order.getServingStyle());
             orderMap.put("delivery_time", order.getDeliveryTime());
-            orderMap.put("delivery_address", order.getDeliveryAddress());
+            // delivery_address는 아래에서 customer 정보와 함께 마스킹 처리됨
             orderMap.put("total_price", order.getTotalPrice());
             orderMap.put("status", order.getStatus());
             orderMap.put("payment_status", order.getPaymentStatus());
@@ -157,18 +160,81 @@ public class EmployeeController {
                 }
             }
 
-            // Add customer information
+            // Add customer information (주문표에서는 정보 표시)
             User customer = userRepository.findById(order.getUserId()).orElse(null);
             if (customer != null) {
                 orderMap.put("customer_name", customer.getName());
                 orderMap.put("customer_phone", customer.getPhone());
             }
+            orderMap.put("delivery_address", order.getDeliveryAddress());
 
             // Add dinner type information
             DinnerType dinner = dinnerTypeRepository.findById(order.getDinnerTypeId()).orElse(null);
             if (dinner != null) {
                 orderMap.put("dinner_name", dinner.getName());
                 orderMap.put("dinner_name_en", dinner.getNameEn());
+            }
+            
+            // 할인 정보 계산 및 추가
+            if (customer != null) {
+                List<Order> previousOrders = orderRepository.findByUserIdOrderByCreatedAtDesc(order.getUserId());
+                long deliveredOrders = previousOrders.stream()
+                        .filter(o -> "delivered".equalsIgnoreCase(o.getStatus()))
+                        .count();
+                // 모든 개인정보 동의(consentName, consentAddress, consentPhone)가 true여야 할인 적용
+                boolean allConsentsGiven = Boolean.TRUE.equals(customer.getConsentName()) 
+                        && Boolean.TRUE.equals(customer.getConsentAddress()) 
+                        && Boolean.TRUE.equals(customer.getConsentPhone());
+                boolean loyaltyEligible = Boolean.TRUE.equals(customer.getLoyaltyConsent()) 
+                        && allConsentsGiven 
+                        && deliveredOrders >= 4;
+                
+                if (loyaltyEligible && dinner != null) {
+                    // 할인이 적용된 경우: 주문 항목을 기반으로 원래 가격 재계산 (기본 제공 항목 제외)
+                    Map<String, Double> styleMultipliers = Map.of(
+                            "simple", 1.0,
+                            "grand", 1.3,
+                            "deluxe", 1.6
+                    );
+                    double basePrice = dinner.getBasePrice() * styleMultipliers.getOrDefault(order.getServingStyle(), 1.0);
+                    
+                    // 기본 제공 메뉴 항목 정보 가져오기
+                    List<com.mrdabak.dinnerservice.model.DinnerMenuItem> defaultMenuItems = 
+                            dinnerMenuItemRepository.findByDinnerTypeId(dinner.getId());
+                    
+                    // 기본 제공 항목의 기본 수량을 Map으로 저장
+                    Map<Long, Integer> defaultQuantities = new java.util.HashMap<>();
+                    for (com.mrdabak.dinnerservice.model.DinnerMenuItem dmi : defaultMenuItems) {
+                        defaultQuantities.put(dmi.getMenuItemId(), dmi.getQuantity());
+                    }
+                    
+                    // 추가 수량만 계산 (기본 제공 항목의 기본 수량은 제외)
+                    double additionalItemsPrice = 0;
+                    List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+                    for (OrderItem item : items) {
+                        MenuItem menuItem = menuItemRepository.findById(item.getMenuItemId()).orElse(null);
+                        if (menuItem != null) {
+                            // 기본 제공 수량 확인
+                            int defaultQuantity = defaultQuantities.getOrDefault(item.getMenuItemId(), 0);
+                            // 추가 수량만 계산 (현재 수량 - 기본 제공 수량)
+                            int additionalQuantity = Math.max(0, item.getQuantity() - defaultQuantity);
+                            additionalItemsPrice += menuItem.getPrice() * additionalQuantity;
+                        }
+                    }
+                    
+                    double originalPrice = basePrice + additionalItemsPrice;
+                    double discountedPrice = order.getTotalPrice();
+                    int discountAmount = (int) Math.round(originalPrice - discountedPrice);
+                    
+                    orderMap.put("loyalty_discount_applied", true);
+                    orderMap.put("original_price", (int) Math.round(originalPrice));
+                    orderMap.put("discount_amount", discountAmount);
+                    orderMap.put("discount_percentage", 10);
+                } else {
+                    orderMap.put("loyalty_discount_applied", false);
+                }
+            } else {
+                orderMap.put("loyalty_discount_applied", false);
             }
 
             List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());

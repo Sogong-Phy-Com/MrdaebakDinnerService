@@ -21,7 +21,10 @@ public class VoiceOrderSummaryDto {
     private String contactPhone;
     private String specialRequests;
     private boolean readyForConfirmation;
+    private Boolean finalConfirmation;  // 고객이 주문 확정 의사를 표현했는지
     private List<String> missingFields = new ArrayList<>();
+    private Long orderId;  // 주문 완료 후 주문 ID
+    private Integer totalPrice;  // 주문 완료 후 총 금액
 
     @Data
     @NoArgsConstructor

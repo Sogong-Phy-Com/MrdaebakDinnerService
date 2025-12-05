@@ -25,6 +25,7 @@ public class OrderService {
     private final OrderItemRepository orderItemRepository;
     private final DinnerTypeRepository dinnerTypeRepository;
     private final MenuItemRepository menuItemRepository;
+    private final DinnerMenuItemRepository dinnerMenuItemRepository;
     private final InventoryService inventoryService;
     private final DeliverySchedulingService deliverySchedulingService;
     private final UserRepository userRepository;
@@ -32,6 +33,7 @@ public class OrderService {
 
     public OrderService(OrderRepository orderRepository, OrderItemRepository orderItemRepository,
                        DinnerTypeRepository dinnerTypeRepository, MenuItemRepository menuItemRepository,
+                       DinnerMenuItemRepository dinnerMenuItemRepository,
                        InventoryService inventoryService, DeliverySchedulingService deliverySchedulingService,
                        UserRepository userRepository,
                        @Qualifier("orderTransactionManager") PlatformTransactionManager orderTransactionManager) {
@@ -39,6 +41,7 @@ public class OrderService {
         this.orderItemRepository = orderItemRepository;
         this.dinnerTypeRepository = dinnerTypeRepository;
         this.menuItemRepository = menuItemRepository;
+        this.dinnerMenuItemRepository = dinnerMenuItemRepository;
         this.inventoryService = inventoryService;
         this.deliverySchedulingService = deliverySchedulingService;
         this.userRepository = userRepository;
@@ -123,8 +126,18 @@ public class OrderService {
         );
         double basePrice = dinner.getBasePrice() * styleMultipliers.getOrDefault(request.getServingStyle(), 1.0);
 
-        // Add item prices
-        double itemsPrice = 0;
+        // 기본 제공 메뉴 항목 정보 가져오기
+        List<com.mrdabak.dinnerservice.model.DinnerMenuItem> defaultMenuItems = 
+                dinnerMenuItemRepository.findByDinnerTypeId(dinner.getId());
+        
+        // 기본 제공 항목의 기본 수량을 Map으로 저장
+        Map<Long, Integer> defaultQuantities = new java.util.HashMap<>();
+        for (com.mrdabak.dinnerservice.model.DinnerMenuItem dmi : defaultMenuItems) {
+            defaultQuantities.put(dmi.getMenuItemId(), dmi.getQuantity());
+        }
+
+        // 추가 수량만 계산 (기본 제공 항목의 기본 수량은 제외)
+        double additionalItemsPrice = 0;
         for (OrderItemDto item : request.getItems()) {
             if (item.getMenuItemId() == null) {
                 throw new RuntimeException("Menu item ID is required");
@@ -134,10 +147,16 @@ public class OrderService {
             }
             MenuItem menuItem = menuItemRepository.findById(item.getMenuItemId())
                     .orElseThrow(() -> new RuntimeException("Invalid menu item ID: " + item.getMenuItemId()));
-            itemsPrice += menuItem.getPrice() * item.getQuantity();
+            
+            // 기본 제공 수량 확인
+            int defaultQuantity = defaultQuantities.getOrDefault(item.getMenuItemId(), 0);
+            // 추가 수량만 계산 (현재 수량 - 기본 제공 수량)
+            int additionalQuantity = Math.max(0, item.getQuantity() - defaultQuantity);
+            additionalItemsPrice += menuItem.getPrice() * additionalQuantity;
         }
 
-        double totalPrice = basePrice + itemsPrice;
+        // 기본 가격 + 추가 항목 가격 (기본 제공 항목은 기본 가격에 이미 포함됨)
+        double totalPrice = basePrice + additionalItemsPrice;
 
         InventoryService.InventoryReservationPlan inventoryPlan =
                 inventoryService.prepareReservations(request.getItems(), deliveryDateTime);
@@ -151,7 +170,13 @@ public class OrderService {
                 .filter(o -> "delivered".equalsIgnoreCase(o.getStatus()))
                 .count();
         // 배달 완료 4회 이상부터 (5번째 주문부터) 할인 적용
-        boolean loyaltyEligible = Boolean.TRUE.equals(user.getLoyaltyConsent()) && deliveredOrders >= 4;
+        // 모든 개인정보 동의(consentName, consentAddress, consentPhone)가 true여야 할인 적용
+        boolean allConsentsGiven = Boolean.TRUE.equals(user.getConsentName()) 
+                && Boolean.TRUE.equals(user.getConsentAddress()) 
+                && Boolean.TRUE.equals(user.getConsentPhone());
+        boolean loyaltyEligible = Boolean.TRUE.equals(user.getLoyaltyConsent()) 
+                && allConsentsGiven 
+                && deliveredOrders >= 4;
         double originalPrice = totalPrice;
         if (loyaltyEligible) {
             totalPrice = totalPrice * 0.9;

@@ -1,7 +1,9 @@
 package com.mrdabak.dinnerservice.controller;
 
 import com.mrdabak.dinnerservice.model.User;
+import com.mrdabak.dinnerservice.model.Order;
 import com.mrdabak.dinnerservice.repository.UserRepository;
+import com.mrdabak.dinnerservice.repository.order.OrderRepository;
 import com.mrdabak.dinnerservice.voice.VoiceOrderException;
 import com.mrdabak.dinnerservice.voice.dto.VoiceMessageDto;
 import com.mrdabak.dinnerservice.voice.dto.VoiceOrderConfirmRequest;
@@ -33,6 +35,7 @@ import java.util.List;
 public class VoiceOrderController {
 
     private final UserRepository userRepository;
+    private final OrderRepository orderRepository;
     private final VoiceConversationService conversationService;
     private final VoiceOrderSummaryMapper summaryMapper;
     private final VoiceOrderSessionService sessionService;
@@ -40,12 +43,14 @@ public class VoiceOrderController {
     private final PasswordEncoder passwordEncoder;
 
     public VoiceOrderController(UserRepository userRepository,
+                                OrderRepository orderRepository,
                                 VoiceConversationService conversationService,
                                 VoiceOrderSummaryMapper summaryMapper,
                                 VoiceOrderSessionService sessionService,
                                 VoiceOrderCheckoutService checkoutService,
                                 PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.orderRepository = orderRepository;
         this.conversationService = conversationService;
         this.summaryMapper = summaryMapper;
         this.sessionService = sessionService;
@@ -106,17 +111,47 @@ public class VoiceOrderController {
         
         // 비밀번호 검증 후 일반 주문과 동일하게 처리
         var order = checkoutService.finalizeVoiceOrder(session);
-        VoiceOrderSummaryDto summary = summaryMapper.toSummary(session);
+        
+        // 주문 완료 후 주문 정보를 포함한 요약 생성 (즉시 반영)
+        VoiceOrderSummaryDto summary = summaryMapper.toSummaryWithOrder(session, order.getId(), order.getTotalPrice());
 
-        String confirmation = "주문이 완료되었습니다. 주문 번호 #%d, 총 금액 %s원입니다."
-                .formatted(order.getId(), order.getTotalPrice());
+        // 할인 정보 확인
+        List<Order> previousOrders = 
+                orderRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+        long deliveredOrders = previousOrders.stream()
+                .filter(o -> "delivered".equalsIgnoreCase(o.getStatus()))
+                .count();
+        boolean allConsentsGiven = Boolean.TRUE.equals(user.getConsentName()) 
+                && Boolean.TRUE.equals(user.getConsentAddress()) 
+                && Boolean.TRUE.equals(user.getConsentPhone());
+        boolean loyaltyEligible = Boolean.TRUE.equals(user.getLoyaltyConsent()) 
+                && allConsentsGiven 
+                && deliveredOrders >= 4;
+        
+        String confirmation;
+        Integer originalPrice = null;
+        Integer discountAmount = null;
+        if (loyaltyEligible) {
+            // 원래 가격 계산 (할인 전)
+            originalPrice = (int) Math.round(order.getTotalPrice() / 0.9);
+            discountAmount = originalPrice - order.getTotalPrice();
+            confirmation = "주문이 완료되었습니다. 주문 번호 #%d, 10%% 할인 혜택이 적용되어 총 금액 %s원입니다."
+                    .formatted(order.getId(), order.getTotalPrice());
+        } else {
+            confirmation = "주문이 완료되었습니다. 주문 번호 #%d, 총 금액 %s원입니다."
+                    .formatted(order.getId(), order.getTotalPrice());
+        }
 
         return ResponseEntity.ok(new VoiceOrderConfirmResponse(
                 session.getSessionId(),
                 order.getId(),
                 order.getTotalPrice(),
                 summary,
-                confirmation));
+                confirmation,
+                loyaltyEligible,
+                originalPrice,
+                discountAmount,
+                loyaltyEligible ? 10 : null));
     }
 
     private User resolveUser(Authentication authentication) {
